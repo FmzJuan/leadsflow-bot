@@ -27,7 +27,7 @@ INSERT INTO clientes_config (nome_oficina, subdominio, google_sheets_id, email_c
 VALUES (
     'Rissato Motors', 
     'rissato', 
-    'COLOQUE_AQUI_O_ID_DA_PLANILHA_DELA', 
+    '12tKq9rxFSe-7i4vnLxGIF694ytdhRd_Is5P50CXi9G0', 
     'contato@rissatomotors.com.br', 
-    'mudar123'
+    'RM#120690'
 ) ON CONFLICT (subdominio) DO NOTHING;

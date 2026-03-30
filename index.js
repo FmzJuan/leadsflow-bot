@@ -65,7 +65,11 @@ app.use(session({
 
 app.use(async (req, res, next) => {
     const host = req.headers.host;
-    const subdominio = host.split('.')[0]; 
+    let subdominio = host.split('.')[0]; 
+
+    if (host.includes('195.200.6.54')) {
+        subdominio = '195.200.6.54'; // Agora sim, batendo idêntico ao banco de dados!
+    }
 
     if (subdominio && subdominio !== 'localhost' && subdominio !== 'www') {
         try {
@@ -77,12 +81,11 @@ app.use(async (req, res, next) => {
             if (result.rows.length > 0) {
                 req.cliente = result.rows[0]; 
                 res.locals.cliente = req.cliente; 
-                console.log(`✅ Acesso identificado: ${req.cliente.nome_oficina}`);
-            } else {
-                return res.status(404).send('Oficina não encontrada no sistema.');
+                // Log para você ver no Coolify se ele achou a oficina
+                console.log(`✅ Oficina Identificada: ${req.cliente.nome_oficina}`);
             }
         } catch (err) {
-            console.error('Erro ao buscar cliente:', err);
+            console.error('❌ Erro ao buscar cliente no banco:', err);
         }
     }
     next();
@@ -304,7 +307,9 @@ async function start() {
 
 
 // Inicia o Servidor
-server.listen(3000, () => {
-    console.log("🌐 Painel LeadsFlow: http://rissatomotors.localhost:3000");
+server.listen(3000, '0.0.0.0', () => {
+    console.log("🚀 LeadsFlow SaaS Online!");
+    console.log("🌐 Local: http://localhost:3000");
+    console.log("🌍 Produção: http://195.200.6.54:3000");
     start(); 
 });
