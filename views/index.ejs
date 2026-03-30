@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LeadsFlow - Dashboard Profissional</title>
+    <link rel="stylesheet" href="/style.css"> 
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
+    <style>
+        /* Layout Principal em Grid */
+        main {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); 
+            gap: 24px;
+            padding: 24px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 24px;
+            height: 420px; 
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover { transform: translateY(-5px); }
+
+        .card h3 {
+            margin: 0 0 20px 0;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #f4f4f5;
+        }
+
+        .card-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center; 
+            overflow: hidden;
+        }
+
+        .log-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 12px;
+            height: 100%; 
+            overflow-y: auto;
+            font-size: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .log-entry {
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            display: flex;
+            gap: 10px;
+            line-height: 1.4;
+        }
+
+        .log-time { color: #6366f1; font-weight: bold; min-width: 65px; }
+        .log-msg { color: #e4e4e7; flex: 1; }
+        .log-success { color: #10b981; flex: 1; }
+
+        .actions-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .btn {
+            width: 100%;
+            margin: 0 !important;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .status-badge {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-online { background: #10b98122; color: #10b981; border: 1px solid #10b98144; }
+        .status-offline { background: #ef444422; color: #ef4444; border: 1px solid #ef444444; }
+
+        #connected-icon {
+            text-align: center;
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+    
+    <header style="display: flex; justify-content: space-between; align-items: center; padding: 20px 40px;">
+        <h1 class="brand-title" style="margin: 0;">Leads<span>Flow</span></h1>
+        <div id="status-badge" class="status-badge status-offline">Verificando...</div>
+    </header>
+
+    <main>
+        <div class="card">
+            <h3><i class="fab fa-whatsapp" style="color: #25d366;"></i> Conexão</h3>
+            <div class="card-content">
+                <div id="qrcode-container" style="text-align: center;">
+                    <canvas id="canvas-qr" style="max-width: 180px; margin: 0 auto;"></canvas>
+                    <div id="connected-icon" style="display: none;">
+                        <i class="fas fa-check-circle" style="font-size: 70px; color: #10b981;"></i>
+                        <p style="color: #10b981; font-weight: bold; margin-top: 15px; font-size: 1.2rem;">Bot Conectado</p>
+                    </div>
+                </div>
+            </div>
+            <p id="qr-msg" style="text-align: center; font-size: 11px; color: #94a3b8; margin-top: 15px;">
+                Status em tempo real
+            </p>
+        </div>
+
+        <div class="card">
+    <h3><i class="fas fa-terminal" style="color: #6366f1;"></i> Atividade</h3>
+    <div class="card-content">
+        <div id="activity-log" class="log-container">
+            <div id="log-placeholder" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; opacity: 0.3;">
+                <i class="fas fa-microchip" style="font-size: 40px; margin-bottom: 15px;"></i>
+                <p style="font-weight: bold; letter-spacing: 2px;">MONITOR DE LOGS</p>
+                <p style="font-size: 10px;">AGUARDANDO ATIVIDADE DO SISTEMA...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+        <div class="card">
+            <h3><i class="fas fa-rocket" style="color: #f59e0b;"></i> Ações</h3>
+            <div class="card-content" style="justify-content: flex-start;">
+                <div class="actions-wrapper">
+                    <a href="<%= sheetLink %>" target="_blank" class="btn btn-primary">
+                        <i class="fas fa-table"></i> Planilha CRM
+                    </a>
+                    
+                    <button onclick="window.location.href='/api/relatorio/pdf'" class="btn btn-secondary">
+                        <i class="fas fa-file-pdf"></i> Baixar Relatório PDF
+                    </button>
+                </div>
+                
+                <div style="margin-top: auto;">
+                    <div style="background: rgba(99, 102, 241, 0.1); padding: 15px; border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.2);">
+                        <p style="font-size: 11px; color: #a5b4fc; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Unidade Ativa:</p>
+                        <p style="font-weight: bold; color: #fff; font-size: 1.1rem;"><%= nomeEmpresa %></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const socket = io();
+        
+        // 1. Pega os dados que o Node.js mandou
+        const meuClienteId = '<%= clienteId %>';
+        const meuStatusInicial = '<%= statusAtual %>';
+        
+        const badge = document.getElementById('status-badge');
+        const canvas = document.getElementById('canvas-qr');
+        const connectedIcon = document.getElementById('connected-icon');
+        const logContainer = document.getElementById('activity-log');
+        const qrMsg = document.getElementById('qr-msg');
+
+        // Função para atualizar a UI do Status (Reaproveitável)
+        function atualizarInterfaceStatus(status) {
+            if(status === 'conectado') {
+                badge.className = 'status-badge status-online';
+                badge.innerText = 'CONECTADO';
+                
+                if(canvas) canvas.style.display = 'none';
+                if(connectedIcon) connectedIcon.style.display = 'block';
+                qrMsg.innerText = "WhatsApp pronto para uso.";
+            } else {
+                badge.className = 'status-badge status-offline';
+                badge.innerText = 'DESCONECTADO';
+                
+                if(canvas) canvas.style.display = 'block';
+                if(connectedIcon) connectedIcon.style.display = 'none';
+                qrMsg.innerText = "Aguardando conexão...";
+            }
+        }
+
+        // 2. Força a tela a pintar o status inicial assim que a página carrega
+        atualizarInterfaceStatus(meuStatusInicial);
+
+        function addLog(message, type = 'default') {
+            const placeholder = document.getElementById('log-placeholder');
+            if (placeholder) placeholder.style.display = 'none'; // Some com o placeholder no primeiro log
+
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('pt-BR');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            
+            let msgClass = type === 'success' ? 'log-success' : 'log-msg';
+            
+            entry.innerHTML = `
+                <span class="log-time">${timeStr}</span>
+                <span class="${msgClass}">${message}</span>
+            `;
+            
+            logContainer.prepend(entry);
+            // Limita a quantidade de logs na tela para não pesar
+            if (logContainer.children.length > 50) logContainer.lastChild.remove();
+        }
+
+        socket.on('connect', () => {
+            console.log("Conectado ao servidor de logs do Cliente ID: " + meuClienteId);
+        });
+
+        // 3. Evento de QR Code ESPECÍFICO para este cliente
+        socket.on(`qr-${meuClienteId}`, (qrText) => {
+            connectedIcon.style.display = 'none';
+            canvas.style.display = 'block';
+            qrMsg.innerText = "Escaneie para conectar o WhatsApp";
+            
+            QRCode.toCanvas(canvas, qrText, { width: 180, margin: 1 }, function (error) {
+                if (error) console.error(error);
+            });
+            
+            badge.className = 'status-badge status-offline';
+            badge.innerText = 'AGUARDANDO LEITURA';
+            addLog("Novo QR Code gerado. Aguardando leitura...");
+        });
+
+        // 4. Evento de Status de Conexão ESPECÍFICO para este cliente
+        socket.on(`status-${meuClienteId}`, (status) => {
+            atualizarInterfaceStatus(status);
+        });
+
+        // 5. Logs de atividade do bot ESPECÍFICOS para este cliente
+        // OBS: Lembre-se de alterar no seu index.js de io.emit('new-log') para io.emit(`new-log-${clienteId}`) depois!
+        socket.on(`new-log-${meuClienteId}`, (data) => {
+            addLog(data.msg, data.type || 'default');
+        });
+        
+        // Mantém a escuta antiga temporariamente caso você ainda não tenha mudado os logs no backend
+        socket.on('new-log', (data) => {
+            addLog(data.msg, data.type || 'default');
+        });
+    </script>
+</body>
+</html>

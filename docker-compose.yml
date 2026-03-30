@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    container_name: postgres_charlie
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS} 
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # O Coolify vai ler isso direto do seu repositório GitHub
+      - ./DataBase/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis_charlie
+    restart: always
+    command: redis-server --save 60 1 --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  app:
+    build: . # MUDANÇA 1: Diz ao Coolify para construir a imagem a partir do seu código
+    container_name: bot_charlie_app
+    restart: always
+    ports:
+      - "3000:3000"
+    # env_file: - .env (MUDANÇA 2: Removido, pois o Coolify injeta as variáveis pelo painel)
+    depends_on:
+      - db
+      - redis
+    volumes:
+      # MUDANÇA 3: Volume nomeado em vez de pasta local para não perder o QR Code no deploy
+      - baileys_session:/app/auth_info_baileys
+
+volumes:
+  postgres_data:
+  redis_data:
+  baileys_session: # Garante a persistência do WhatsApp
