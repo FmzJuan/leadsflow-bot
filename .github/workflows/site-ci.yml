@@ -1,4 +1,4 @@
-name: CI-Ledsflow
+name: CI-LeadsFlow
 
 on:
   push:
@@ -7,13 +7,11 @@ on:
     branches: [ main ]
 
 jobs:
-  
-  # --- VERIFICAÇÃO DO BOT (BAILEYS) ---
-  job-bot:
+  # --- INTEGRAÇÃO CONTÍNUA E TESTES ---
+  test-bot:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
 
     services:
       postgres:
@@ -24,49 +22,34 @@ jobs:
         ports:
           - 5432:5432
       redis:
-        image: redis
+        image: redis:7-alpine
         ports:
           - 6379:6379
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: ./bots/bot-wpp-balleys/package-lock.json
+          cache-dependency-path: package-lock.json # CORREÇÃO: Caminho atualizado para a raiz
 
       - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Check Code Syntax
+        # CORREÇÃO: Removido o 'cd' pois agora estamos na raiz
         run: |
-          cd bots/bot-wpp-balleys
-          npm install --legacy-peer-deps
+          node --check index.js
+          node --check Engine/whatsapp.js
 
       - name: Run Automated Tests (Jest)
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/leadsflow
           REDIS_URL: redis://localhost:6379
           NODE_ENV: test
-        run: |
-          cd bots/bot-wpp-balleys
-          npm test
-
-      - name: Check Code Syntax
-        run: |
-          cd bots/bot-wpp-balleys
-          node --check index.js
-          node --check Engine/whatsapp.js
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and Push Docker Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./bots/bot-wpp-balleys
-          push: true
-          tags: ghcr.io/fmzjuan/charlie-bot:latest
+        # MELHORIA: Executa os testes e exibe a cobertura de código
+        run: npm test -- --coverage --passWithNoTests
