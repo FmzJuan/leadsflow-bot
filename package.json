@@ -26,11 +26,16 @@
     "pdfkit": "^0.17.2",
     "pg": "^8.20.0",
     "pino": "^10.2.1",
-    "puppeteer": "^24.40.0",
     "qrcode-terminal": "^0.12.0",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "jest": "^30.3.0"
+    "@jest-mock/express": "^3.0.0",
+    "ioredis-mock": "^8.13.1",
+    "jest": "^30.3.0",
+    "jest-puppeteer": "^11.0.0",
+    "puppeteer": "^24.40.0",
+    "socket.io-client": "^4.8.3",
+    "supertest": "^7.2.2"
   }
 }
