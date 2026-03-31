@@ -202,6 +202,34 @@ app.post('/api/finalizar-servico', async (req, res) => {
     }
 });
 
+// -- ROTA DE EMERGENCIA : RESETAR A SESSAO MANUALMENTE --
+app.post('/api/resetar-sessao', async (req, res) => {
+    if (!req.session.logged) return res.status(401).json({ error: "Não autorizado" });
+    
+    const clienteId = req.cliente.id;
+    console.log(`🔄 Recebido pedido de RESET MANUAL para o cliente ${clienteId}`);
+
+    try {
+        const sock = getClientSocket(clienteId);
+        if (sock) {
+            sock.logout(); // Desloga e a própria engine apaga a pasta
+        } else {
+            const authPath = path.resolve(__dirname, 'sessions', `auth_info_${clienteId}`);
+            if (fs.existsSync(authPath)) {
+                fs.rmSync(authPath, { recursive: true, force: true });
+                console.log(`🗑️ [Reset Manual] Pasta removida na força para cliente ${clienteId}.`);
+            }
+            
+            io.emit(`new-log-${clienteId}`, { msg: `Sistema resetado manualmente. Aguarde o novo QR Code.`, type: 'warning' });
+            io.emit(`status-${clienteId}`, 'desconectado');
+        }
+
+        res.json({ success: true, message: "Sessão limpa. Escaneie o QR Code novamente." });
+    } catch (error) {
+        console.error("❌ Erro ao resetar sessão:", error);
+        res.status(500).json({ success: false, error: "Erro interno ao resetar." });
+    }
+});
 // --- FUNÇÃO PRINCIPAL DO BOT (MULTI-TENANT) ---
 async function start() {
     console.log("🚀 LeadsFlow SaaS: Buscando clientes ativos no banco de dados...");

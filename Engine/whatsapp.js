@@ -40,30 +40,44 @@ async function connectToWhatsApp(clienteId, onMessage) {
     });
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
+        const { connection, lastDisconnect, qr } = update;
 
-        if (qr) {
-            // Emite o QR Code avisando de qual cliente é
-            io.emit(`qr-${clienteId}`, qr); 
-            io.emit(`status-${clienteId}`, 'desconectado');
-        }
+        if (qr) {
+            io.emit(`qr-${clienteId}`, qr); 
+            io.emit(`status-${clienteId}`, 'desconectado');
+        }
 
-        if (connection === 'close') {
-            io.emit(`status-${clienteId}`, 'desconectado');
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            if (statusCode !== DisconnectReason.loggedOut) {
-                console.log(`⚠️ Cliente ${clienteId} caiu. Reconectando...`);
-                setTimeout(() => connectToWhatsApp(clienteId, onMessage), 5000);
-            } else {
-                console.log(`🛑 Cliente ${clienteId} desconectou o celular.`);
-                sessions.delete(clienteId); // Tira do estacionamento
-            }
-        } else if (connection === 'open') {
-            console.log(`✅ BOT DO CLIENTE ${clienteId} ONLINE!`);
-            sessions.set(clienteId, sock); // Guarda o bot pronto
-            io.emit(`status-${clienteId}`, 'conectado'); 
-        }
-    });
+        if (connection === 'close') {
+            io.emit(`status-${clienteId}`, 'desconectado');
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            
+            // Se o cliente deslogou pelo celular OU a sessão corrompeu (401 Unauthorized)
+            if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+                console.log(`🛑 Cliente ${clienteId} desconectou ou sessão expirou. Limpando dados...`);
+                sessions.delete(clienteId); 
+
+                // 💥 DELETA A PASTA CORROMPIDA OU DESLOGADA
+                if (fs.existsSync(authPath)) {
+                    fs.rmSync(authPath, { recursive: true, force: true });
+                    console.log(`🗑️ Pasta de sessão do cliente ${clienteId} removida com sucesso.`);
+                }
+
+                io.emit(`new-log-${clienteId}`, { msg: `Sessão encerrada. Por favor, leia o QR Code novamente.`, type: 'error' });
+                
+                // Reinicia a conexão do zero para gerar um novo QR Code limpo
+                setTimeout(() => connectToWhatsApp(clienteId, onMessage), 2000);
+
+            } else {
+                // Quedas normais de internet (Reconecta sem apagar a pasta)
+                console.log(`⚠️ Cliente ${clienteId} caiu (Erro: ${statusCode}). Reconectando...`);
+                setTimeout(() => connectToWhatsApp(clienteId, onMessage), 5000);
+            }
+        } else if (connection === 'open') {
+            console.log(`✅ BOT DO CLIENTE ${clienteId} ONLINE!`);
+            sessions.set(clienteId, sock); 
+            io.emit(`status-${clienteId}`, 'conectado'); 
+        }
+    });
 
     sock.ev.on('creds.update', saveCreds);
 
