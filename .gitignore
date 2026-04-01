@@ -13,6 +13,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.pdf
+seguro.md
 
 # Banco de Dados Local (se houver dump)
+
+#senha cryptografada
+gerar_hash.js
 #*.sql

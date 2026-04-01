@@ -6,6 +6,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const session = require('express-session');
 const cron = require('node-cron');
+const bcrypt = require('bcrypt');
 
 // Importações de Motores e Funções Globais
 const { connectToWhatsApp, getClientSocket } = require('./Engine/whatsapp'); 
@@ -100,28 +101,48 @@ io.on('connection', (socket) => {
 app.get('/login', (req, res) => res.render('login'));
 
 app.post('/login', async (req, res) => {
-    const { username, password } = req.body;
-    
-    if (req.cliente) {
-        if (username === req.cliente.email_contato && password === req.cliente.senha_dashboard) {
+    const username = (req.body.username || req.body.email || '').toLowerCase().trim();
+    const password = (req.body.password || req.body.senha || '').trim();
+
+    try {
+        // Login para Clientes (Multi-tenant)
+        if (req.cliente) {
+            const emailBanco = (req.cliente.email_contato || '').toLowerCase().trim();
+
+            if (username === emailBanco) {
+                const match = await bcrypt.compare(password, req.cliente.senha_dashboard);
+                
+                if (match) {
+                    req.session.logged = true;
+                    req.session.clienteId = req.cliente.id; 
+                    return res.redirect('/');
+                }
+            }
+        }
+
+        // Login para Admin Global (Vem do .env)
+        if (username === process.env.PANEL_USER && password === process.env.PANEL_PASS) {
             req.session.logged = true;
-            req.session.clienteId = req.cliente.id; 
             return res.redirect('/');
         }
-    }
 
-    if (username === process.env.PANEL_USER && password === process.env.PANEL_PASS) {
-        req.session.logged = true;
-        return res.redirect('/');
-    }
+        res.send('<script>alert("Usuário ou senha inválidos!"); window.location="/login";</script>');
 
-    res.send('<script>alert("Usuário ou senha inválidos para este subdomínio!"); window.location="/login";</script>');
+    } catch (error) {
+        console.error("🚨 Erro na autenticação:", error);
+        res.status(500).send("Erro interno no servidor.");
+    }
 });
 
 // --- ROTAS DO PAINEL ---
 app.get('/', (req, res) => {
     if (!req.session.logged) return res.redirect('/login');
     
+    // Se logar como Admin ou subdomínio não identificado
+    if (!req.cliente) {
+        return res.send('<h2>Painel Admin Global</h2><p>Identifique-se via subdomínio de cliente para acessar a dashboard.</p>');
+    }
+
     const statusBot = getClientSocket(req.cliente.id) ? 'conectado' : 'desconectado';
 
     res.render('index', { 
