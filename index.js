@@ -356,9 +356,29 @@ async function start() {
 
 
 // Inicia o Servidor
-server.listen(3000, '0.0.0.0', () => {
+/*server.listen(3000, '0.0.0.0', () => {
     console.log("🚀 LeadsFlow SaaS Online!");
     console.log("🌐 Local: http://localhost:3000");
     console.log("🌍 Produção: http://195.200.6.54:3000");
     start(); 
-});
+});*/
+// 1. Criamos um objeto com tudo o que o sistema precisa exportar
+const exportacoes = { app, server, io, start };
+
+// 2. Trava de segurança para Cron e Listen (Não rodam em modo de teste)
+if (process.env.NODE_ENV !== 'test') {
+    // Só inicia o servidor se não for teste
+    server.listen(3000, '0.0.0.0', () => {
+        console.log("🚀 LeadsFlow SaaS Online!");
+        start(); 
+    });
+
+    // --- MOVA O SEU CRON PARA DENTRO DESTE IF ---
+    cron.schedule('0 18 * * *', async () => {
+        console.log("⏰ Iniciando sincronização diária com ERPs...");
+        // ... seu código do cron aqui ...
+    });
+}
+
+// 3. Exportação Única e Limpa
+module.exports = exportacoes;

@@ -1,8 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1774879623659" clover="3.2.0">
-  <project timestamp="1774879623659" name="All files">
-    <metrics statements="377" coveredstatements="21" conditionals="170" coveredconditionals="13" methods="49" coveredmethods="3" elements="596" coveredelements="37" complexity="0" loc="377" ncloc="377" packages="5" files="12" classes="12"/>
-    <package name="Chat.RissatoMotors">
+<coverage generated="1775074202992" clover="3.2.0">
+  <project timestamp="1775074202992" name="All files">
+    <metrics statements="389" coveredstatements="21" conditionals="174" coveredconditionals="13" methods="51" coveredmethods="3" elements="614" coveredelements="37" complexity="0" loc="389" ncloc="389" packages="6" files="13" classes="13"/>
+    <package name="bot-wpp-balleys">
+      <metrics statements="7" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
+      <file name="gerar_hash.js" path="C:\Users\juan meneghesso\github-\bot-wpp-balleys\gerar_hash.js">
+        <metrics statements="7" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
+        <line num="1" count="0" type="stmt"/>
+        <line num="4" count="0" type="stmt"/>
+        <line num="5" count="0" type="stmt"/>
+        <line num="7" count="0" type="stmt"/>
+        <line num="8" count="0" type="stmt"/>
+        <line num="9" count="0" type="stmt"/>
+        <line num="12" count="0" type="stmt"/>
+      </file>
+    </package>
+    <package name="bot-wpp-balleys.Chat.RissatoMotors">
       <metrics statements="148" coveredstatements="0" conditionals="50" coveredconditionals="0" methods="22" coveredmethods="0"/>
       <file name="api.js" path="C:\Users\juan meneghesso\github-\bot-wpp-balleys\Chat\RissatoMotors\api.js">
         <metrics statements="11" coveredstatements="0" conditionals="6" coveredconditionals="0" methods="1" coveredmethods="0"/>
@@ -171,7 +184,7 @@
         <line num="52" count="0" type="stmt"/>
       </file>
     </package>
-    <package name="DataBase">
+    <package name="bot-wpp-balleys.DataBase">
       <metrics statements="9" coveredstatements="0" conditionals="12" coveredconditionals="0" methods="2" coveredmethods="0"/>
       <file name="conection.js" path="C:\Users\juan meneghesso\github-\bot-wpp-balleys\DataBase\conection.js">
         <metrics statements="9" coveredstatements="0" conditionals="12" coveredconditionals="0" methods="2" coveredmethods="0"/>
@@ -186,10 +199,10 @@
         <line num="26" count="0" type="stmt"/>
       </file>
     </package>
-    <package name="Engine">
-      <metrics statements="49" coveredstatements="0" conditionals="30" coveredconditionals="0" methods="5" coveredmethods="0"/>
+    <package name="bot-wpp-balleys.Engine">
+      <metrics statements="54" coveredstatements="0" conditionals="34" coveredconditionals="0" methods="6" coveredmethods="0"/>
       <file name="whatsapp.js" path="C:\Users\juan meneghesso\github-\bot-wpp-balleys\Engine\whatsapp.js">
-        <metrics statements="49" coveredstatements="0" conditionals="30" coveredconditionals="0" methods="5" coveredmethods="0"/>
+        <metrics statements="54" coveredstatements="0" conditionals="34" coveredconditionals="0" methods="6" coveredmethods="0"/>
         <line num="6" count="0" type="stmt"/>
         <line num="7" count="0" type="stmt"/>
         <line num="8" count="0" type="stmt"/>
@@ -208,40 +221,45 @@
         <line num="42" count="0" type="stmt"/>
         <line num="43" count="0" type="stmt"/>
         <line num="45" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="46" count="0" type="stmt"/>
         <line num="47" count="0" type="stmt"/>
-        <line num="48" count="0" type="stmt"/>
-        <line num="51" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="50" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="51" count="0" type="stmt"/>
         <line num="52" count="0" type="stmt"/>
-        <line num="53" count="0" type="stmt"/>
-        <line num="54" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="55" count="0" type="stmt"/>
+        <line num="55" count="0" type="cond" truecount="0" falsecount="4"/>
         <line num="56" count="0" type="stmt"/>
-        <line num="58" count="0" type="stmt"/>
-        <line num="59" count="0" type="stmt"/>
-        <line num="61" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="57" count="0" type="stmt"/>
+        <line num="60" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="61" count="0" type="stmt"/>
         <line num="62" count="0" type="stmt"/>
-        <line num="63" count="0" type="stmt"/>
-        <line num="64" count="0" type="stmt"/>
+        <line num="65" count="0" type="stmt"/>
         <line num="68" count="0" type="stmt"/>
-        <line num="70" count="0" type="stmt"/>
-        <line num="71" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="72" count="0" type="stmt"/>
         <line num="73" count="0" type="stmt"/>
-        <line num="74" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="75" count="0" type="cond" truecount="0" falsecount="2"/>
         <line num="76" count="0" type="stmt"/>
-        <line num="77" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="80" count="0" type="cond" truecount="0" falsecount="2"/>
-        <line num="83" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="77" count="0" type="stmt"/>
+        <line num="78" count="0" type="stmt"/>
+        <line num="82" count="0" type="stmt"/>
         <line num="84" count="0" type="stmt"/>
-        <line num="85" count="0" type="stmt"/>
-        <line num="88" count="0" type="cond" truecount="0" falsecount="3"/>
-        <line num="90" count="0" type="cond" truecount="0" falsecount="5"/>
-        <line num="93" count="0" type="stmt"/>
-        <line num="96" count="0" type="stmt"/>
-        <line num="100" count="0" type="stmt"/>
-        <line num="103" count="0" type="stmt"/>
+        <line num="85" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="87" count="0" type="stmt"/>
+        <line num="88" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="90" count="0" type="stmt"/>
+        <line num="91" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="94" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="97" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="98" count="0" type="stmt"/>
+        <line num="99" count="0" type="stmt"/>
+        <line num="102" count="0" type="cond" truecount="0" falsecount="3"/>
+        <line num="104" count="0" type="cond" truecount="0" falsecount="5"/>
+        <line num="107" count="0" type="stmt"/>
+        <line num="110" count="0" type="stmt"/>
+        <line num="114" count="0" type="stmt"/>
+        <line num="117" count="0" type="stmt"/>
       </file>
     </package>
-    <package name="Functions">
+    <package name="bot-wpp-balleys.Functions">
       <metrics statements="151" coveredstatements="5" conditionals="55" coveredconditionals="0" methods="16" coveredmethods="0"/>
       <file name="googleSheets.js" path="C:\Users\juan meneghesso\github-\bot-wpp-balleys\Functions\googleSheets.js">
         <metrics statements="93" coveredstatements="0" conditionals="45" coveredconditionals="0" methods="12" coveredmethods="0"/>
@@ -401,7 +419,7 @@
         <line num="105" count="2" type="stmt"/>
       </file>
     </package>
-    <package name="utils">
+    <package name="bot-wpp-balleys.utils">
       <metrics statements="20" coveredstatements="16" conditionals="23" coveredconditionals="13" methods="4" coveredmethods="3"/>
       <file name="formatador.js" path="C:\Users\juan meneghesso\github-\bot-wpp-balleys\utils\formatador.js">
         <metrics statements="16" coveredstatements="13" conditionals="23" coveredconditionals="13" methods="2" coveredmethods="2"/>

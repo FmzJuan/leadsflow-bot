@@ -1,12 +1,14 @@
 # Dependências
 node_modules/
 
-# Segurança e Credenciais
-.env
+#Segurança e Credenciais
 auth_info_baileys/
 credentials.json
 token.json
 sessions/
+.env
+.env.test
+.env.local
 
 # Logs e arquivos temporários
 npm-debug.log*
@@ -15,7 +17,8 @@ yarn-error.log*
 *.pdf
 seguro.md
 
-# Banco de Dados Local (se houver dump)
+# Test coverage
+coverage/
 
 #senha cryptografada
 gerar_hash.js
