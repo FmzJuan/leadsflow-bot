@@ -19,6 +19,7 @@ seguro.md
 
 # Test coverage
 coverage/
+coverage 
 
 #senha cryptografada
 gerar_hash.js
