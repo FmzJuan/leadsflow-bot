@@ -1,13 +1,16 @@
-# ESTÁGIO 1: Nomeie como "builder"
+# ESTÁGIO 1: Builder
 FROM node:20-slim AS builder  
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-# ESTÁGIO 2: 
+# ESTÁGIO 2: Final
 FROM node:20-slim
 WORKDIR /app
-# Instala o Chromium e as dependências para o Puppeteer e Baileys
+
+# Configuração para evitar travamentos no apt-get
+ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update && apt-get install -y \
     chromium \
     ffmpeg \
@@ -21,9 +24,9 @@ RUN apt-get update && apt-get install -y \
     libpangocairo-1.0-0 \
     libcups2 \
     --no-install-recommends && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Váriavel de ambiente para o Puppeteer saber onde está o Chrome no Linux
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
