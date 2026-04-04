@@ -2,10 +2,15 @@ const { google } = require('googleapis');
 const path = require('path');
 // 1. IMPORTAMOS O BANCO DE DADOS PARA BUSCAR O ID DA PLANILHA DO CLIENTE
 const { query } = require('../DataBase/conection');
-
+const credentialsVar = process.env.GOOGLE_CREDENTIALS_JSON;
 // 2. Configura a autenticação (Permanece igual, usa a mesma credencial global)
+//const auth = new google.auth.GoogleAuth({
+//    keyFile: path.join(__dirname, '../credentials.json'), 
+//    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+//});
 const auth = new google.auth.GoogleAuth({
-    keyFile: path.join(__dirname, '../credentials.json'), 
+    credentials: credentialsVar ? JSON.parse(credentialsVar) : null,
+    keyFile: !credentialsVar ? path.join(__dirname, '../credentials.json') : null,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
