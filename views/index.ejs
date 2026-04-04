@@ -159,7 +159,13 @@
                     <a href="<%= sheetLink %>" target="_blank" class="btn btn-primary">
                         <i class="fas fa-table"></i> Planilha CRM
                     </a>
-                    
+                    <!-- Botão de Sincronização Manual -->
+<div style="margin: 20px 0;">
+    <button id="btnSyncErp" onclick="dispararSyncRPA()" style="padding: 10px 20px; background-color: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 8px;">
+        🔄 Sincronizar ERP Agora
+    </button>
+    <small id="syncStatusMsg" style="color: #666; display: block; margin-top: 5px;"></small>
+</div>
                     <button onclick="window.location.href='/api/relatorio/pdf'" class="btn btn-secondary">
                         <i class="fas fa-file-pdf"></i> Baixar Relatório PDF
                     </button>
@@ -265,6 +271,45 @@
         socket.on('new-log', (data) => {
             addLog(data.msg, data.type || 'default');
         });
+        async function dispararSyncRPA() {
+    const btn = document.getElementById('btnSyncErp');
+    const msg = document.getElementById('syncStatusMsg');
+    
+    // 1. Trava o botão para o cliente não clicar 10 vezes seguidas (Prevenção de Spam)
+    btn.disabled = true;
+    btn.style.backgroundColor = '#6c757d';
+    btn.innerHTML = '⏳ Sincronizando em background...';
+    msg.innerText = 'O robô está extraindo os dados. Isso pode levar cerca de 1 minuto.';
+
+    try {
+        // 2. Avisa a nossa rota do Express (que vai jogar na fila do BullMQ)
+        const response = await fetch('/api/sync-erp', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+
+        // 3. Processa a resposta
+        if (data.success) {
+            msg.style.color = 'green';
+            msg.innerText = '✅ Pedido na fila! Os dados aparecerão na sua planilha em breve.';
+            btn.innerHTML = '✔️ Sincronização Iniciada';
+        } else {
+            throw new Error(data.error || 'Erro desconhecido');
+        }
+    } catch (error) {
+        msg.style.color = 'red';
+        msg.innerText = `❌ Falha: ${error.message}`;
+        
+        // Libera o botão para tentar de novo
+        btn.disabled = false;
+        btn.style.backgroundColor = '#28a745';
+        btn.innerHTML = '🔄 Tentar Sincronizar Novamente';
+    }
+}
     </script>
 </body>
 </html>

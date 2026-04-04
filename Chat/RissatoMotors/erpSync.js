@@ -1,179 +1,278 @@
-// Chat/RissatoMotors/erpSync.js
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const csv = require('csv-parser');
 
 const { formatarLeadParaSheets } = require('../../utils/formatador');
-const { salvarDadosBrutosERP, atualizarAbaClientes } = require('../../Functions/googleSheets');
 
-const ERP_CHAVE = process.env.ERP_CHAVE; 
-const ERP_USER = process.env.ERP_USER;
-const ERP_PASS = process.env.ERP_PASS;
+const { 
+    salvarDadosBrutosERP, 
+    atualizarAbaClientes, 
+    salvarDadosBrutosOS, 
+    atualizarAbaHistorico // <-- Adicione esta
+} = require('../../Functions/googleSheets');
+const { query } = require('../../DataBase/conection');
+// --- FUNÇÕES UTILITÁRIAS ---
 
-async function extrairDadosDoERP() {
-    console.log("🤖 [RPA] Iniciando extração de dados...");
+/**
+ * Retorna as datas de início e fim do mês atual no formato DD/M/YYYY
+ */
+function obterDatasMesAtual() {
+    const hoje = new Date();
+    const mes = hoje.getMonth() + 1; // getMonth é zero-based
+    const ano = hoje.getFullYear();
+    
+    const primeiroDia = `01/${mes}/${ano}`;
+    const ultimoDiaMes = new Date(ano, mes, 0).getDate();
+    const ultimoDia = `${ultimoDiaMes}/${mes}/${ano}`;
+    
+    return { primeiroDia, ultimoDia };
+}
+
+/**
+ * Aguarda o download do arquivo na pasta especificada.
+ */
+async function aguardarDownload(downloadPath, timeoutSegundos = 45) {
+    for (let i = 0; i < timeoutSegundos; i++) {
+        const arquivos = fs.readdirSync(downloadPath);
+        const arquivo = arquivos.find(f => f.endsWith('.csv') || f.endsWith('.xls'));
+        
+        if (arquivo && !arquivo.endsWith('.crdownload')) {
+            return path.join(downloadPath, arquivo);
+        }
+        await new Promise(r => setTimeout(r, 1000));
+    }
+    throw new Error(`Timeout de ${timeoutSegundos}s aguardando download.`);
+}
+
+// --- FUNÇÕES DE EXTRAÇÃO (BLOCOS LÓGICOS) ---
+
+async function extrairPlanilhaClientes(page, downloadPath, clienteId) {
+    console.log(`[Tenant ${clienteId}] 🖱️ Acessando lista de Clientes...`);
+    await page.goto('https://sistema.oficinaintegrada.com.br/P_LISTAR_CLIENTES.ASP', { waitUntil: 'networkidle2' });
+
+    await page.waitForSelector('.btn.yellow.dropdown-toggle', { visible: true });
+    await page.click('.btn.yellow.dropdown-toggle');
+    await new Promise(r => setTimeout(r, 2000));
+    
+    try {
+        await page.waitForSelector('a[onclick="exportarCSV();"]', { visible: true, timeout: 5000 });
+    } catch (e) {
+        await page.evaluate(() => {
+            const btn = document.querySelector('.btn.yellow.dropdown-toggle');
+            if (btn) btn.click();
+        });
+        await new Promise(r => setTimeout(r, 2000));
+    }
+
+    const clicou = await page.evaluate(() => {
+        const link = document.querySelector('a[onclick="exportarCSV();"]');
+        if (link) { link.click(); return true; }
+        return false;
+    });
+
+    if (!clicou) throw new Error("Botão 'exportarCSV' não encontrado na tela de Clientes.");
+
+    console.log(`[Tenant ${clienteId}] ⏳ Aguardando download de Clientes...`);
+    const caminhoArquivo = await aguardarDownload(downloadPath);
+    
+    await processarCSVClientes(caminhoArquivo, clienteId);
+    
+    // Limpa a pasta para a próxima extração não pegar o arquivo errado
+    fs.unlinkSync(caminhoArquivo); 
+}
+
+async function extrairPlanilhaOS(page, downloadPath, clienteId) {
+    const { primeiroDia, ultimoDia } = obterDatasMesAtual();
+    console.log(`[Tenant ${clienteId}] 🖱️ Acessando OS Entregues (${primeiroDia} a ${ultimoDia})...`);
+    
+    const urlOS = `https://sistema.oficinaintegrada.com.br/P_LISTAR_OS.ASP?POR=STATUSOS&DATA_TIPO=2&DATA_INICIAL=${primeiroDia}&DATA_FINAL=${ultimoDia}&BUSCA=4`;
+    await page.goto(urlOS, { waitUntil: 'networkidle2' });
+
+    console.log(`[Tenant ${clienteId}] ⬇️ Procurando botão de exportação de OS...`);
+    
+    try {
+        // 1. Tenta ver se existe um botão de menu (dropdown) e clica nele por garantia
+        const menuAcoes = await page.$('.btn.yellow.dropdown-toggle');
+        if (menuAcoes) {
+            console.log(`[Tenant ${clienteId}] ⚠️ Menu de ações encontrado. Abrindo...`);
+            await page.evaluate(el => el.click(), menuAcoes);
+            await new Promise(r => setTimeout(r, 1500)); // Espera a animação do menu
+        }
+
+        // 2. Dispara o clique no botão usando evaluate (ignora se ele parece "invisível" pro navegador)
+        const clicou = await page.evaluate(() => {
+            // Procura pelo ID ou por qualquer link que tenha o exportarCSV no onclick
+            const link = document.querySelector('#exportcsv') || document.querySelector('a[onclick*="exportarCSV"]');
+            if (link) { 
+                link.click(); 
+                return true; 
+            }
+            return false;
+        });
+
+        if (!clicou) {
+            throw new Error("Botão não foi encontrado no HTML da página.");
+        }
+
+        console.log(`[Tenant ${clienteId}] ⏳ Aguardando download de OS...`);
+        const caminhoArquivo = await aguardarDownload(downloadPath);
+        
+        await processarCSV_OS(caminhoArquivo, clienteId);
+        fs.unlinkSync(caminhoArquivo);
+
+    } catch (error) {
+        // 🔥 JOGADA DE SÊNIOR: Tira um print da tela para vermos o que deu errado!
+        const screenshotPath = path.resolve(__dirname, `ERRO_OS_tenant_${clienteId}.png`);
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        throw new Error(`Falha na tela de OS. Um print da tela foi salvo em: ${screenshotPath} | Detalhe: ${error.message}`);
+    }
+}
+
+// --- MOTOR PRINCIPAL ---
+
+/**
+ * Extrai dados do ERP Oficina Integrada e sincroniza com o Google Sheets.
+ */
+async function extrairDadosDoERP(clienteId, credenciaisERP) {
+    if (!clienteId || !credenciaisERP || !credenciaisERP.chave || !credenciaisERP.usuario || !credenciaisERP.senha) {
+        throw new Error(`[RPA Tenant ${clienteId}] Falha de Segurança: Contexto ou credenciais ausentes.`);
+    }
+
+    const timestamp = Date.now();
+    const downloadPath = path.resolve(__dirname, `downloads/tenant_${clienteId}_${timestamp}`);
+    
+    if (!fs.existsSync(downloadPath)) fs.mkdirSync(downloadPath, { recursive: true });
 
     const browser = await puppeteer.launch({
-        headless: "new", // Melhor suporte a downloads automáticos em servidores VPS
-        args: [
-            '--no-sandbox', 
-            '--disable-setuid-sandbox', 
-            '--start-maximized',
-            '--disable-dev-shm-usage' // Essencial para evitar crash de memória em VPS
-        ],
+        headless: "new",
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--start-maximized', '--disable-dev-shm-usage'],
         defaultViewport: null
     });
 
-    const page = await browser.newPage();
-    
-    // --- CONFIGURAÇÃO DE DOWNLOAD (CAMINHO ABSOLUTO) ---
-    const downloadPath = path.resolve(__dirname, 'downloads');
-    if (!fs.existsSync(downloadPath)) {
-        fs.mkdirSync(downloadPath, { recursive: true });
-    }
-
-    // Limpa arquivos antigos para não processar dado errado (sujeira de execuções anteriores)
-    const files = fs.readdirSync(downloadPath);
-    for (const file of files) {
-        fs.unlinkSync(path.join(downloadPath, file));
-    }
-
-    // Protocolo CDP para forçar permissão de download no modo headless
-    const client = await page.target().createCDPSession();
-    await client.send('Page.setDownloadBehavior', {
-        behavior: 'allow',
-        downloadPath: downloadPath, 
-    });
-
     try {
+        const page = await browser.newPage();
+        
+        const client = await page.target().createCDPSession();
+        await client.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadPath });
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-        // --- LOGIN ---
-        console.log("➡️ Acessando login...");
+        console.log(`[Tenant ${clienteId}] 🔑 Realizando Login...`);
         await page.goto('https://sistema.oficinaintegrada.com.br/login.asp', { waitUntil: 'networkidle2' });
-
-        await page.type('#chave', ERP_CHAVE); 
-        await page.type('#usuario', ERP_USER);       
-        await page.type('#senha', ERP_PASS);         
-
-        console.log("🔑 Fazendo login...");
+        await page.type('#chave', credenciaisERP.chave); 
+        await page.type('#usuario', credenciaisERP.usuario);       
+        await page.type('#senha', credenciaisERP.senha);         
         await Promise.all([
             page.click('#btnLogar'),
             page.waitForNavigation({ waitUntil: 'networkidle2' }) 
         ]);
 
-        // --- NAVEGAÇÃO DIRETA ---
-        console.log("🖱️ Navegando até Clientes...");
-        await page.goto('https://sistema.oficinaintegrada.com.br/P_LISTAR_CLIENTES.ASP', { waitUntil: 'networkidle2' });
-
-        // --- EXPORTAÇÃO BLINDADA (Tratamento de Timeout) ---
-        console.log("⬇️ Solicitando exportação...");
-        await page.waitForSelector('.btn.yellow.dropdown-toggle', { visible: true });
+        // === ORQUESTRAÇÃO DE EXTRAÇÕES ===
+        await extrairPlanilhaClientes(page, downloadPath, clienteId);
         
-        // 1º Clique: Tenta abrir o menu normalmente
-        await page.click('.btn.yellow.dropdown-toggle');
-        await new Promise(r => setTimeout(r, 2000)); // Aguarda animação do dropdown
-        
-        console.log("🖱️ Tentando encontrar o botão de CSV...");
-        try {
-            await page.waitForSelector('a[onclick="exportarCSV();"]', { visible: true, timeout: 10000 });
-        } catch (e) {
-            console.log("⚠️ Menu não abriu no clique normal. Forçando via JS...");
-            // Retentativa: Força o clique no menu via evaluate
-            await page.evaluate(() => {
-                const btn = document.querySelector('.btn.yellow.dropdown-toggle');
-                if (btn) btn.click();
-            });
-            await new Promise(r => setTimeout(r, 2000));
-        }
-
-        // Clique final no CSV usando evaluate. Isso garante a execução mesmo se o elemento estiver sobreposto ou "invisível" para o mouse virtual.
-        console.log("🚀 Disparando comando de exportação CSV...");
-        const csvClicado = await page.evaluate(() => {
-            const link = document.querySelector('a[onclick="exportarCSV();"]');
-            if (link) {
-                link.click();
-                return true;
-            }
-            return false;
-        });
-
-        if (!csvClicado) {
-            throw new Error("Não foi possível encontrar o botão 'exportarCSV' na página.");
-        }
-
-        // --- VERIFICAÇÃO DE DOWNLOAD ---
-        console.log("⏳ Aguardando o arquivo aparecer na pasta...");
-        let arquivoBaixado = null;
-        for (let i = 0; i < 45; i++) { // Tenta por 45 segundos (ajustado para servidores mais lentos)
-            const arquivosNaPasta = fs.readdirSync(downloadPath);
-            arquivoBaixado = arquivosNaPasta.find(f => f.endsWith('.csv') || f.endsWith('.xls'));
-            
-            // Aceita o arquivo apenas se ele não for um arquivo temporário de download do Chrome
-            if (arquivoBaixado && !arquivoBaixado.endsWith('.crdownload')) {
-                console.log(`✅ Arquivo pronto: ${arquivoBaixado}`);
-                break;
-            }
-            await new Promise(r => setTimeout(r, 1000));
-        }
-
-        if (!arquivoBaixado) throw new Error("O arquivo não foi gerado na pasta de downloads dentro do tempo limite.");
-
-        // --- PROCESSAMENTO ---
-        await processarCSVBaixado(path.join(downloadPath, arquivoBaixado));
+        await extrairPlanilhaOS(page, downloadPath, clienteId);
+        // =================================
 
     } catch (error) {
-        console.error("❌ [RPA] Erro:", error);
+        throw new Error(`[RPA Tenant ${clienteId}] Erro durante execução: ${error.message}`);
     } finally {
         await browser.close();
-        console.log("🛑 Navegador fechado.");
+        if (fs.existsSync(downloadPath)) fs.rmSync(downloadPath, { recursive: true, force: true });
     }
 }
 
-async function processarCSVBaixado(caminhoArquivo) {
-    console.log(`📊 Processando: ${caminhoArquivo}`);
+// --- PROCESSADORES DE DADOS ---
 
-    // 👇 DEFINA O ID DA RISSATO MOTORS NO SEU BANCO DE DADOS AQUI
-    const CLIENTE_ID_BANCO = 1; // Troque para o ID correto se não for 1
-
+async function processarCSVClientes(caminhoArquivo, clienteId) {
     let cabecalho = [];
-    const linhasBrutas = [];
-    const dadosParaOSheets = [];
+    const dadosQuentes = []; // Últimos 6 meses (Para Pós-Venda)
+    const dadosFrios = [];   // Histórico completo tratado
+
+    const limiteData = new Date();
+    limiteData.setMonth(limiteData.getMonth() - 6); // Define a régua de 6 meses atrás
 
     return new Promise((resolve, reject) => {
         fs.createReadStream(caminhoArquivo)
             .pipe(csv({ separator: ';' })) 
             .on('headers', (headers) => cabecalho = headers)
             .on('data', (linha) => {
-                const linhaArray = cabecalho.map(col => linha[col]);
-                linhasBrutas.push(linhaArray);
+                // 1. Tratamento e Formatação
+                const leadLimpo = formatarLeadParaSheets(linha); // Sua função utilitária
+                
+                if (leadLimpo) {
+                    // leadLimpo costuma ser um array [Data, Nome, Telefone...]
+                    // Precisamos converter a data do CSV para comparar
+                    // Exemplo: assumindo que a data está em linha['Data'] ou no seu formato
+                    const dataServico = converterDataERP(linha['DATA_CADASTRO'] || linha['ULTIMA_VISITA']);
 
-                const leadLimpo = formatarLeadParaSheets(linha);
-                if (leadLimpo) dadosParaOSheets.push(leadLimpo);
+                    // 2. Classificação de Temperatura do Dado
+                    if (dataServico >= limiteData) {
+                        dadosQuentes.push(leadLimpo); // Vai para a aba de Pós-Venda Ativo
+                    }
+                    dadosFrios.push(leadLimpo); // Vai para a aba de Histórico Geral
+                }
             })
             .on('end', async () => {
                 try {
-                    // Passando CLIENTE_ID_BANCO como o último parâmetro para as funções
-                    if (linhasBrutas.length > 0) {
-                        await salvarDadosBrutosERP(cabecalho, linhasBrutas, CLIENTE_ID_BANCO);
-                    }
-                    if (dadosParaOSheets.length > 0) {
-                        await atualizarAbaClientes(dadosParaOSheets, CLIENTE_ID_BANCO);
+                    // 3. Envio para as abas corretas (Isolamento de Dados)
+                    if (dadosQuentes.length > 0) {
+                        await atualizarAbaClientes(dadosQuentes, clienteId); // Pós-Venda
                     }
                     
-                    // Apaga o arquivo CSV após enviar para o Google Sheets (planilha)
-                    fs.unlinkSync(caminhoArquivo); 
-                    console.log(`✅ [RPA] Sucesso! Dados sincronizados para o cliente ID: ${CLIENTE_ID_BANCO}`);
+                    if (dadosFrios.length > 0) {
+                        await atualizarAbaHistorico(dadosFrios, clienteId); // Histórico Geral (Nova função)
+                    }
+
+                    // 4. Persistência no Banco (Dados Frios para Relatórios)
+                    await salvarNoPostgres(dadosFrios, clienteId);
+
                     resolve();
                 } catch (e) { reject(e); }
             });
     });
 }
 
-if (require.main === module) {
-    extrairDadosDoERP();
+// Função auxiliar para entender a data do ERP
+function converterDataERP(dataStr) {
+    if (!dataStr) return new Date(0);
+    // Ajuste o split conforme o formato do seu CSV (ex: 01/04/2026)
+    const [dia, mes, ano] = dataStr.split('/');
+    return new Date(ano, mes - 1, dia);
+}
+async function salvarNoPostgres(dados, clienteId) {
+    console.log(`[Database] Persistindo ${dados.length} registros no histórico do Cliente ${clienteId}...`);
+    for (const linha of dados) {
+        // Exemplo de query para evitar duplicados (ajuste as colunas conforme sua tabela)
+        const [data, nome, telefone] = linha;
+        await query(`
+            INSERT INTO historico_clientes (cliente_id, nome, celular, ultima_visita)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (cliente_id, celular) DO UPDATE SET ultima_visita = $4
+        `, [clienteId, nome, telefone, data]);
+    }
+}
+
+async function processarCSV_OS(caminhoArquivo, clienteId) {
+    let cabecalho = [];
+    const linhasBrutas = [];
+
+    return new Promise((resolve, reject) => {
+        fs.createReadStream(caminhoArquivo)
+            .pipe(csv({ separator: ';' })) 
+            .on('headers', (headers) => cabecalho = headers)
+            .on('data', (linha) => {
+                linhasBrutas.push(cabecalho.map(col => linha[col]));
+            })
+            .on('end', async () => {
+                try {
+                    // Chama a nova função do Google Sheets
+                    if (linhasBrutas.length > 0) {
+                        await salvarDadosBrutosOS(cabecalho, linhasBrutas, clienteId);
+                    }
+                    resolve();
+                } catch (e) { reject(e); }
+            }).on('error', reject);
+    });
 }
 
 module.exports = { extrairDadosDoERP };

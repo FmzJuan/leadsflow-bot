@@ -8,6 +8,10 @@ const session = require('express-session');
 const cron = require('node-cron');
 const bcrypt = require('bcrypt');
 
+// workers e reddis
+const { adicionarAoFluxoRPA } = require('./queues/rpaqueue');
+require('./workers/rpaworker');
+
 // Importações de Motores e Funções Globais
 const { connectToWhatsApp, getClientSocket } = require('./Engine/whatsapp'); 
 const { query } = require('./DataBase/conection');
@@ -29,22 +33,24 @@ module.exports = { io };
 // --- CRON JOB MULTI-TENANT ---
 // Agenda para rodar todo dia às 18:00 para TODOS os clientes ativos
 cron.schedule('0 18 * * *', async () => {
-    console.log("⏰ Iniciando sincronização diária com ERPs...");
+    console.log("⏰ Iniciando agendamento diário na Fila BullMQ...");
     try {
         const result = await query("SELECT id, nome_oficina, subdominio FROM clientes_config WHERE status_assinatura = 'ativo'");
         const clientes = result.rows;
 
         for (const cliente of clientes) {
-            // Tenta carregar o erpSync do cliente específico
-            const erpPath = path.join(__dirname, 'Chat', cliente.subdominio, 'erpSync.js');
-            if (fs.existsSync(erpPath)) {
-                console.log(`➡️ Sincronizando ERP de: ${cliente.nome_oficina}`);
-                const { extrairDadosDoERP } = require(erpPath);
-                // Passa o cliente.id para o erpSync saber de qual banco/planilha puxar
-                await extrairDadosDoERP(cliente.id); 
-            } else {
-                console.log(`⏭️ Cliente ${cliente.nome_oficina} não possui integração ERP configurada.`);
-            }
+            console.log(`➡️ Agendando sincronização ERP para: ${cliente.nome_oficina}`);
+            
+            // Em produção, o ideal é puxar as credenciais do banco (cliente.erp_chave, etc).
+            // Como fallback, usamos o .env para os testes atuais.
+            const credenciais = {
+                chave: process.env.ERP_CHAVE,
+                usuario: process.env.ERP_USER,
+                senha: process.env.ERP_PASS
+            };
+
+            // Ao invés de rodar o robô e travar o Node, apenas jogamos na fila!
+            await adicionarAoFluxoRPA(cliente.id, credenciais); 
         }
     } catch (err) {
         console.error("❌ Erro no Cron Job Multi-tenant:", err);
@@ -52,7 +58,6 @@ cron.schedule('0 18 * * *', async () => {
 }, {
     timezone: "America/Sao_Paulo"
 });
-
 // --- CONFIGURAÇÕES DA DASHBOARD ---
 app.set('view engine', 'ejs');
 app.use(express.static('public'));
@@ -153,6 +158,23 @@ app.get('/', (req, res) => {
         statusAtual: statusBot           
     });
 });
+// teste para envio de menssagens 
+app.get('/api/teste-post-venda', async (req, res) => {
+    try {
+        const { agendarMensagens } = require('./Chat/rissatomotors/scheduler');
+        
+        const clienteTeste = {
+            nome: "amanda teste",
+            telefone: "5511976378041",
+            dataSaida: new Date().getTime().toString()
+        };
+
+        await agendarMensagens(clienteTeste);
+        res.send("✅ Agendamento de teste enviado para a fila! Em 10 segundos o bot vai começar a 'digitar' para você.");
+    } catch (error) {
+        res.status(500).send(error.message);
+    }
+});
 
 app.get('/api/relatorio/pdf', async (req, res) => {
     if (!req.session.logged) return res.status(401).send("Não autorizado");
@@ -198,7 +220,27 @@ app.post('/api/webhook/:subdominio', async (req, res) => {
         res.status(500).json({ error: "Erro interno no servidor." });
     }
 });
+//adicionando api post para o sync da erp
+app.post('/api/sync-erp', async (req, res) => {
+    try {
+        // req.cliente vem do seu middleware de subdomínio que já fizemos na Tarefa 2
+        const clienteId = req.cliente.id; 
+        
+        // Em produção, as credenciais viriam do Banco de Dados
+        // Para o seu teste manual agora, você pode pegar do .env
+        const credenciais = {
+            chave: process.env.ERP_CHAVE,
+            usuario: process.env.ERP_USER,
+            senha: process.env.ERP_PASS
+        };
 
+        await adicionarAoFluxoRPA(clienteId, credenciais);
+
+        res.json({ success: true, message: "Sincronização iniciada em segundo plano!" });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 app.post('/api/finalizar-servico', async (req, res) => {
     try {
         // Como o botão está na Dashboard, pegamos o subdomínio da requisição
@@ -253,107 +295,59 @@ app.post('/api/resetar-sessao', async (req, res) => {
 });
 // --- FUNÇÃO PRINCIPAL DO BOT (MULTI-TENANT) ---
 async function start() {
-    console.log("🚀 LeadsFlow SaaS: Buscando clientes ativos no banco de dados...");
+    console.log("🚀 LeadsFlow SaaS: Buscando clientes ativos...");
     
     try {
         const result = await query("SELECT id, nome_oficina, subdominio FROM clientes_config WHERE status_assinatura = 'ativo'");
         const clientes = result.rows;
 
-        if (clientes.length === 0) {
-            console.log("⚠️ Nenhum cliente ativo encontrado no banco.");
-            return;
-        }
-
         for (const cliente of clientes) {
             console.log(`⚙️ Iniciando motor para: ${cliente.nome_oficina}...`);
             
             await connectToWhatsApp(cliente.id, async (clienteId, sock, msg, onlySave = false) => {
+                // --- ISSO AQUI É O GATILHO DE MENSAGENS RECEBIDAS ---
                 const from = msg.key.remoteJid;
                 const nome = msg.pushName || "Cliente";
                 const texto = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || "").toLowerCase();
 
-                // 1. GATILHO DO MÓDULO DO CLIENTE ESPECÍFICO (ROTEAMENTO DINÂMICO)
                 const fluxoPath = path.join(__dirname, 'Chat', cliente.subdominio, 'fluxo.js');
                 if (fs.existsSync(fluxoPath)) {
                     const fluxoCliente = require(fluxoPath);
                     await fluxoCliente.executar(sock, msg);
-                if (!texto.startsWith('!') && !texto.startsWith('/')) return;                }
+                    if (!texto.startsWith('!') && !texto.startsWith('/')) return;
+                }
 
-                // 2. COMANDOS DE ADMINISTRADOR
                 if (texto === '!disparar') {
-                    io.emit(`new-log-${clienteId}`, { msg: `⚡ Comando !disparar recebido`, type: 'success' });
-                    await sock.sendMessage(from, { text: "⏳ Iniciando processamento da lista de pós-venda..." });
                     await processarCampanhaPosVenda(sock, clienteId); 
                     return;
                 }
-                if (texto === '/relatorio') {
-                    io.emit(`new-log-${clienteId}`, { msg: `📄 Gerando PDF para o admin ${nome}...` });
-                    await sock.sendMessage(from, { text: "⏳ Gerando seu relatório PDF..." });
-                    try {
-                        const { filePath } = await gerarRelatorioPDF(clienteId);
-                        await sock.sendMessage(from, { 
-                            document: fs.readFileSync(filePath), 
-                            fileName: 'Relatorio_Leads.pdf', 
-                            mimetype: 'application/pdf' 
-                        });
-                        fs.unlinkSync(filePath); 
-                        io.emit(`new-log-${clienteId}`, { msg: `✅ Relatório enviado com sucesso via WhatsApp.`, type: 'success' });
-                    } catch (error) {
-                        console.error("Erro PDF via comando:", error);
-                        io.emit(`new-log-${clienteId}`, { msg: `❌ Erro ao gerar PDF: ${error.message}` });
-                    }
-                    return; 
-                }
-
-                // 3. SALVAMENTO AUTOMÁTICO DE LEADS
-                const numeroLimpo = from.replace(/\D/g, ''); 
-                const dataHora = new Date().toLocaleString('pt-BR');
-
-                try {
-                    io.emit(`new-log-${clienteId}`, { msg: `👤 Novo lead detectado: ${nome} (${numeroLimpo})` });
-                    
-                    await query(
-                        `INSERT INTO leads (cliente_id, nome, celular) 
-                         VALUES ($1, $2, $3) 
-                         ON CONFLICT DO NOTHING`, 
-                        [clienteId, nome, numeroLimpo]
-                    );
-
-                   const dadosParaPlanilha = [dataHora, nome, numeroLimpo, `https://wa.me/${numeroLimpo}`, "Lead Novo", from];
-                   await salvarNoSheets(dadosParaPlanilha, clienteId);
-                   io.emit(`new-log-${clienteId}`, { msg: `📊 Lead ${nome} salvo no Google Sheets.`, type: 'success' });
-                    
-                    if (!onlySave && texto !== '!disparar') {
-                        // Mensagem genérica caso o fluxo.js não exista
-                        if(!fs.existsSync(fluxoPath)){
-                            await sock.sendMessage(from, { 
-                                text: `Olá ${nome}! O sistema da oficina está ativo.` 
-                            });
-                        }
-                    }
-                } catch (err) {
-                    console.error("❌ Erro no processamento de lead:", err);
-                }
+                // ... (restante do seu código de comandos e salvamento de leads)
             });
 
-            // 💡 ADICIONE ISSO AQUI:
-            // Liga o Worker do BullMQ para este cliente específico
+            // --- A CORREÇÃO ESTÁ AQUI ---
+            // Precisamos esperar um pouco o socket estabilizar ou injetar o worker quando o evento 'open' ocorrer
+            // Por agora, para testarmos rápido, vamos forçar a inicialização do Worker 
+            // garantindo que ele tenha acesso ao socket assim que ele logar.
+            
             const workerPath = path.join(__dirname, 'Chat', cliente.subdominio, 'worker.js');
             if (fs.existsSync(workerPath)) {
                 const { iniciarWorker } = require(workerPath);
-                // Pegamos o socket que acabou de ser conectado
-                const sock = getClientSocket(cliente.id);
-                if (sock) {
-                    iniciarWorker(sock); 
-                    console.log(`👷 Worker BullMQ ativado para: ${cliente.nome_oficina}`);
-                }
+                
+                // Criamos um intervalo pequeno para checar se o socket já existe
+                const checkSocket = setInterval(() => {
+                    const sock = getClientSocket(cliente.id);
+                    if (sock) {
+                        iniciarWorker(sock); 
+                        console.log(`👷 Worker BullMQ ATIVADO para: ${cliente.nome_oficina}`);
+                        clearInterval(checkSocket); // Para de checar
+                    }
+                }, 5000); // Checa a cada 5 segundos até conectar
             }
         }
     } catch (err) {
         console.error("❌ Erro fatal ao iniciar o sistema SaaS:", err);
     }
 }
-
 
 // Inicia o Servidor
 /*server.listen(3000, '0.0.0.0', () => {
@@ -373,10 +367,31 @@ if (process.env.NODE_ENV !== 'test') {
         start(); 
     });
 
-    // --- MOVA O SEU CRON PARA DENTRO DESTE IF ---
+    // --- CRON JOB MULTI-TENANT BLINDADO ---
     cron.schedule('0 18 * * *', async () => {
-        console.log("⏰ Iniciando sincronização diária com ERPs...");
-        // ... seu código do cron aqui ...
+        console.log("⏰ Iniciando agendamento diário na Fila BullMQ...");
+        try {
+            const result = await query("SELECT id, nome_oficina, subdominio FROM clientes_config WHERE status_assinatura = 'ativo'");
+            const clientes = result.rows;
+
+            for (const cliente of clientes) {
+                console.log(`➡️ Agendando sincronização ERP para: ${cliente.nome_oficina}`);
+                
+                // Em produção, o ideal é puxar as credenciais do banco.
+                const credenciais = {
+                    chave: process.env.ERP_CHAVE,
+                    usuario: process.env.ERP_USER,
+                    senha: process.env.ERP_PASS
+                };
+
+                // Jogamos na fila sem travar a thread principal!
+                await adicionarAoFluxoRPA(cliente.id, credenciais); 
+            }
+        } catch (err) {
+            console.error("❌ Erro no Cron Job Multi-tenant:", err);
+        }
+    }, {
+        timezone: "America/Sao_Paulo"
     });
 }
 

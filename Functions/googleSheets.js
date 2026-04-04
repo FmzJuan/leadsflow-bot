@@ -230,11 +230,61 @@ async function atualizarAbaClientes(dadosLimpos, clienteId) {
         console.error(`❌ Erro ao salvar clientes ERP no Sheets (Cliente ${clienteId}):`, error.message);
     }
 }
+async function atualizarAbaHistorico(dados, clienteId) {
+    try {
+        const spreadsheetId = await getSheetId(clienteId);
+        if (!spreadsheetId) return;
+        
+        // Limpa e atualiza a aba de Histórico Geral
+        await sheets.spreadsheets.values.clear({ spreadsheetId, range: 'Histórico_Geral!A:ZZ' });
+        await sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: 'Histórico_Geral!A1',
+            valueInputOption: 'USER_ENTERED',
+            resource: { values: dados },
+        });
+        console.log(`✅ [Sheets] Histórico Geral atualizado para o Cliente ${clienteId}.`);
+    } catch (error) {
+        console.error(`❌ Erro ao salvar Histórico no Sheets:`, error.message);
+    }
+}
+/**
+ * [NOVO] Salva o CSV inteiro das Ordens de Serviço na aba "ERP_OS"
+ */
+async function salvarDadosBrutosOS(cabecalho, linhas, clienteId) {
+    try {
+        const spreadsheetId = await getSheetId(clienteId);
+        if (!spreadsheetId) return;
+        
+        // 1. Limpa a aba antiga (evita sobreposição se o CSV novo for menor que o antigo)
+        await sheets.spreadsheets.values.clear({ 
+            spreadsheetId, 
+            range: 'ERP_Serviços!A:ZZ' 
+        });
 
+        // 2. Prepara os dados (cabeçalho + todas as linhas)
+        const values = [cabecalho, ...linhas];
+
+        // 3. Insere os dados
+        await sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: 'ERP_Serviços!A1',
+            valueInputOption: 'USER_ENTERED',
+            resource: { values },
+        });
+
+        console.log(`✅ [Sheets] ERP_Serviços brutas (${linhas.length} Ordens) atualizadas para o Cliente ${clienteId}.`);
+    } catch (error) {
+        console.error(`❌ Erro ao salvar dados de OS no Sheets (Cliente ${clienteId}):`, error.message);
+    }
+}
+
+// Não esqueça de exportar a nova função aqui embaixo!
 module.exports = { 
     salvarNoSheets, 
     obterClientesPosVenda, 
     processarCampanhaPosVenda,
     salvarDadosBrutosERP, 
-    atualizarAbaClientes  
+    atualizarAbaClientes,
+    salvarDadosBrutosOS // <-- Adicionado
 };

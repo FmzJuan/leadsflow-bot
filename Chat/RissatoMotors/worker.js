@@ -12,7 +12,9 @@ async function enviarMensagemHumana(sock, jid, texto) {
         await sock.sendPresenceUpdate('composing', jid);
         
         // 2. Aguarda um tempo aleatório entre 10 e 20 segundos
-        const tempoDigitando = Math.floor(Math.random() * (20000 - 10000 + 1)) + 10000;
+        //const tempoDigitando = Math.floor(Math.random() * (20000 - 10000 + 1)) + 10000;
+        // Para TESTE: Aguarda entre 3 e 5 segundos
+const tempoDigitando = Math.floor(Math.random() * (5000 - 3000 + 1)) + 3000;
         console.log(`[Worker] Simulando digitação por ${tempoDigitando / 1000}s para ${jid}...`);
         await new Promise(resolve => setTimeout(resolve, tempoDigitando));
 
