@@ -161,7 +161,7 @@ app.get('/', (req, res) => {
 // teste para envio de menssagens 
 app.get('/api/teste-post-venda', async (req, res) => {
     try {
-        const { agendarMensagens } = require('./Chat/rissatomotors/scheduler');
+        const { agendarMensagens } = require('./Chat/RissatoMotors/scheduler');
         
         const clienteTeste = {
             nome: "amanda teste",

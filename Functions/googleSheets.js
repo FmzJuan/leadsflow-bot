@@ -291,5 +291,6 @@ module.exports = {
     processarCampanhaPosVenda,
     salvarDadosBrutosERP, 
     atualizarAbaClientes,
-    salvarDadosBrutosOS // <-- Adicionado
+    salvarDadosBrutosOS,
+    atualizarAbaHistorico // <-- Adicionado
 };
