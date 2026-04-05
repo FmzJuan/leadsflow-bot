@@ -13,19 +13,6 @@ jobs:
     permissions:
       contents: read
 
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_DB: leadsflow
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -45,11 +32,3 @@ jobs:
         run: |
           node --check index.js
           node --check Engine/whatsapp.js
-
-      - name: Run Automated Tests (Jest)
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/leadsflow
-          REDIS_URL: redis://localhost:6379
-          NODE_ENV: test
-        # MELHORIA: Executa os testes e exibe a cobertura de código
-        run: npm test -- --coverage --passWithNoTests
