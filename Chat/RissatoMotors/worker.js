@@ -1,24 +1,24 @@
 // Chat/RissatoMotors/worker.js
 const { Worker } = require('bullmq');
 const IORedis = require('ioredis');
-const { mensagens24h, mensagens6meses } = require('./mensagens'); // Importa os arrays
+const { mensagens24h, mensagens6meses } = require('./mensagens'); 
+const { salvarNoSheets } = require('../../Functions/googleSheets');
 
-const connection = new IORedis({ host: process.env.REDIS_HOST || 'localhost', maxRetriesPerRequest: null });
+// Use este padrão de conexão (igual ao seu DataBase/redis.js)
+const connection = new IORedis({
+    host: process.env.REDIS_HOST || '127.0.0.1',
+    port: process.env.REDIS_PORT || 6379,
+    password: process.env.REDIS_PASS || undefined,
+    maxRetriesPerRequest: null 
+});
 
-// 🤖 Função de Envio Humanizado (Anti-Ban)
 async function enviarMensagemHumana(sock, jid, texto) {
     try {
-        // 1. Avisa o WhatsApp que está "digitando..."
         await sock.sendPresenceUpdate('composing', jid);
-        
-        // 2. Aguarda um tempo aleatório entre 10 e 20 segundos
-        //const tempoDigitando = Math.floor(Math.random() * (20000 - 10000 + 1)) + 10000;
-        // Para TESTE: Aguarda entre 3 e 5 segundos
-const tempoDigitando = Math.floor(Math.random() * (5000 - 3000 + 1)) + 3000;
+        const tempoDigitando = Math.floor(Math.random() * (5000 - 3000 + 1)) + 3000;
         console.log(`[Worker] Simulando digitação por ${tempoDigitando / 1000}s para ${jid}...`);
         await new Promise(resolve => setTimeout(resolve, tempoDigitando));
 
-        // 3. Envia a mensagem e para de "digitar"
         await sock.sendMessage(jid, { text: texto });
         await sock.sendPresenceUpdate('paused', jid);
     } catch (error) {
@@ -31,19 +31,24 @@ function iniciarWorker(sock) {
         const { telefone, nome, tipo } = job.data;
         const jid = `${telefone}@s.whatsapp.net`;
         
-        // Escolhe qual array usar
         const arraySorteio = tipo === '24h' ? mensagens24h : mensagens6meses;
-        
-        // Sorteia 1 frase aleatória do array
         const textoSorteado = arraySorteio[Math.floor(Math.random() * arraySorteio.length)];
-        
-        // Troca a tag {nome} pelo nome real do cliente
-        const textoFinal = textoSorteado.replace('{nome}', nome.split(' ')[0]); // Pega só o primeiro nome
+        const textoFinal = textoSorteado.replace('{nome}', nome.split(' ')[0]);
 
         console.log(`[Worker] Preparando disparo para ${nome} (${tipo})`);
         
-        // Dispara usando a função humanizada
+        // 1. Envia a mensagem
         await enviarMensagemHumana(sock, jid, textoFinal);
+
+        // 2. SALVA NA PLANILHA (DENTRO do processamento do job)
+        const dadosParaPlanilha = [
+            new Date().toLocaleString('pt-BR'), 
+            nome, 
+            telefone, 
+            `Pós-Venda ${tipo}`, 
+            'Mensagem Enviada'
+        ];
+        await salvarNoSheets(dadosParaPlanilha, 1); 
 
     }, { connection });
 
