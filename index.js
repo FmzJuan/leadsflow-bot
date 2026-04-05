@@ -5,12 +5,12 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const session = require('express-session');
-const RedisStore = require("connect-redis").default; // Adicionado .default para v7+
-const IORedis = require("ioredis"); // Adicionado para gerenciar sessões no Redis
+const RedisStore = require("connect-redis").default; // .default é essencial para v7+
+const IORedis = require("ioredis");
 const cron = require('node-cron');
 const bcrypt = require('bcrypt');
 
-// Configuração do Cliente Redis para Sessões
+// Configuração do Cliente Redis para Sessões e Filas
 const redisClient = new IORedis({ 
     host: process.env.REDIS_HOST || '127.0.0.1',
     port: process.env.REDIS_PORT || 6379
@@ -39,12 +39,20 @@ app.use(express.static('public'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// SESSÃO CONFIGURADA COM REDIS (Evita Memory Leak e erros na VPS)
+// SESSÃO CONFIGURADA COM REDIS (Blindagem contra crash e memory leak)
 app.use(session({ 
-    store: new RedisStore({ client: redisClient }),
+    store: new RedisStore({ 
+        client: redisClient,
+        prefix: "leadsflow_sess:" 
+    }),
     secret: process.env.SESSION_SECRET || 'secret_flow', 
     resave: false, 
-    saveUninitialized: false 
+    saveUninitialized: false,
+    cookie: {
+        secure: false, // Defina como true se usar HTTPS (SSL)
+        httpOnly: true,
+        maxAge: 1000 * 60 * 60 * 24 // 1 dia de validade
+    }
 }));
 
 // Middleware de Identificação de Cliente (Multi-tenant)
@@ -129,7 +137,6 @@ app.get('/', (req, res) => {
 // TESTE DE ENVIO (Puxando número do Coolify/ENV)
 app.get('/api/teste-post-venda', async (req, res) => {
     try {
-        // Busca o primeiro número da sua lista de permitidos no Coolify
         const numeroDestino = (process.env.NUMEROS_PERMITIDOS || "").split(',')[0].trim();
         
         if (!numeroDestino) {
@@ -145,7 +152,7 @@ app.get('/api/teste-post-venda', async (req, res) => {
         };
 
         await agendarMensagens(clienteTeste);
-        res.send(`✅ Teste enviado para a fila para o número ${numeroDestino}! Em 10 segundos o bot vai processar.`);
+        res.send(`✅ Teste enviado para a fila para o número ${numeroDestino}! O bot processará em breve.`);
     } catch (error) {
         res.status(500).send("Erro no agendamento: " + error.message);
     }
