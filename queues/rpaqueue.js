@@ -1,6 +1,6 @@
 // Arquivo: Queues/rpaQueue.js
 const { Queue } = require('bullmq');
-const redisConnection = require('./DataBase/redis');
+const redisConnection = require('../DataBase/redis');
 
 // Criamos a fila chamada 'rpa-sync'
 const rpaQueue = new Queue('rpa-sync', {
