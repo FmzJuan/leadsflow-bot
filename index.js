@@ -9,7 +9,8 @@ const cron = require('node-cron');
 const bcrypt = require('bcrypt');
 
 // 1. Importa apenas a CLASSE do gerenciador (sem criar nova conexão aqui)
-const RedisStore = require("connect-redis")(session); // ✅ passa o session aqui
+const connectRedis = require("connect-redis");
+const RedisStore = connectRedis.default;
 const redisClient = require('./DataBase/redis');
 
 // workers e reddis
