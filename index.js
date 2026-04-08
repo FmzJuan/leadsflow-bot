@@ -54,27 +54,22 @@ async function start() {
 
         for (const cliente of clientes) {
             console.log(`⚙️ Iniciando motor para: ${cliente.nome_oficina}...`);
+
+            // Carrega o worker do cliente SE existir
+            const workerPath = path.join(__dirname, 'Chat', cliente.subdominio, 'worker.js');
+            let iniciarWorker = null;
+            if (fs.existsSync(workerPath)) {
+                iniciarWorker = require(workerPath).iniciarWorker;
+            }
             
+            // Passa o iniciarWorker como terceiro argumento
             await connectToWhatsApp(cliente.id, async (clienteId, sock, msg) => {
                 const fluxoPath = path.join(__dirname, 'Chat', cliente.subdominio, 'fluxo.js');
                 if (fs.existsSync(fluxoPath)) {
                     const fluxoCliente = require(fluxoPath);
                     await fluxoCliente.executar(sock, msg);
                 }
-            });
-
-            const workerPath = path.join(__dirname, 'Chat', cliente.subdominio, 'worker.js');
-            if (fs.existsSync(workerPath)) {
-                const { iniciarWorker } = require(workerPath);
-                const checkSocket = setInterval(() => {
-                    const sock = getClientSocket(cliente.id);
-                    if (sock) {
-                        iniciarWorker(sock); 
-                        console.log(`👷 Worker BullMQ ATIVADO para: ${cliente.nome_oficina}`);
-                        clearInterval(checkSocket);
-                    }
-                }, 5000);
-            }
+            }, iniciarWorker);
         }
     } catch (err) {
         console.error("❌ Erro fatal ao iniciar o sistema SaaS:", err);
