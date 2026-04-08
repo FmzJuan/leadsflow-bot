@@ -70,14 +70,21 @@ app.use(session({
 }));
 
 app.use(async (req, res, next) => {
-    const host = req.headers.host;
-    let subdominio = host.split('.')[0]; 
+    const host = req.headers.host; // ex: rissatomotors.ledsflow.cloud
+    const partes = host.split('.');
+    
+    let subdominio = null;
 
-    if (host.includes('195.200.6.54')) {
-        subdominio = '195.200.6.54'; // Agora sim, batendo idêntico ao banco de dados!
+    // Se tiver 3 partes ou mais, a primeira é o subdomínio (ex: rissatomotors)
+    if (partes.length >= 3) {
+        subdominio = partes[0];
+    } 
+    // Se for o IP direto
+    else if (host.includes('195.200.6.54')) {
+        subdominio = '195.200.6.54';
     }
 
-    if (subdominio && subdominio !== 'localhost' && subdominio !== 'www') {
+    if (subdominio && subdominio !== 'www') {
         try {
             const result = await query(
                 'SELECT * FROM clientes_config WHERE subdominio = $1', 
@@ -87,8 +94,9 @@ app.use(async (req, res, next) => {
             if (result.rows.length > 0) {
                 req.cliente = result.rows[0]; 
                 res.locals.cliente = req.cliente; 
-                // Log para você ver no Coolify se ele achou a oficina
                 console.log(`✅ Oficina Identificada: ${req.cliente.nome_oficina}`);
+            } else {
+                console.log(`⚠️ Subdomínio "${subdominio}" não encontrado no banco.`);
             }
         } catch (err) {
             console.error('❌ Erro ao buscar cliente no banco:', err);
