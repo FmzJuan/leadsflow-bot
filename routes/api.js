@@ -7,6 +7,24 @@ const { adicionarAoFluxoRPA } = require('../queues/rpaqueue');
 const { gerarRelatorioPDF } = require('../Functions/report.js');
 const { getClientSocket } = require('../Engine/whatsapp');
 
+// Teste para envio de mensagens
+router.get('/teste-post-venda', async (req, res) => {
+    try {
+        const { agendarMensagens } = require('../Chat/RissatoMotors/scheduler');
+        
+        const clienteTeste = {
+            nome: "amanda teste",
+            telefone: "5511976378041",
+            dataSaida: new Date().getTime().toString()
+        };
+
+        await agendarMensagens(clienteTeste);
+        res.send("✅ Agendamento de teste enviado para a fila! Em 10 segundos o bot vai começar a 'digitar' para você.");
+    } catch (error) {
+        res.status(500).send(error.message);
+    }
+});
+
 // Webhook Genérico
 router.post('/webhook/:subdominio', async (req, res) => {
     const subdominio = req.params.subdominio;
