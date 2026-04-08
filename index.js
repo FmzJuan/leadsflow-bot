@@ -8,7 +8,7 @@ const session = require('express-session');
 const cron = require('node-cron');
 const bcrypt = require('bcrypt');
 
-const RedisStore = require("connect-redis").default;
+let RedisStore = require("connect-redis").default || require("connect-redis");
 const Redis = require("ioredis");
 
 // workers e reddis
