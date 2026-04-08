@@ -10,7 +10,7 @@ const { getClientSocket } = require('../Engine/whatsapp');
 // Teste para envio de mensagens
 router.get('/teste-post-venda', async (req, res) => {
     try {
-        const { agendarMensagens } = require('../Chat/RissatoMotors/scheduler');
+        const { agendarMensagens } = require('../Chat/rissatomotors/scheduler.js');
         
         const clienteTeste = {
             nome: "amanda teste",

@@ -1,7 +1,7 @@
 // Arquivo: Workers/rpaWorker.js
 const { Worker } = require('bullmq');
 const redisConnection = require('../DataBase/redis');
-const { extrairDadosDoERP } = require('../Chat/RissatoMotors/erpSync');
+const { extrairDadosDoERP } = require('../Chat/rissatomotors/erpSync');
 
 // O Worker fica "vigiando" a fila 'rpa-sync'
 const rpaWorker = new Worker('rpa-sync', async (job) => {
