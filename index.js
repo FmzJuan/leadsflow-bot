@@ -75,7 +75,7 @@ app.use(session({
 }));
 
 app.use(async (req, res, next) => {
-    const host = req.headers.host; // ex: rissatomotors.ledsflow.cloud
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
     console.log(`🔍 Host recebido: ${host}`); // LOG 1
     const partes = host.split('.');
     
