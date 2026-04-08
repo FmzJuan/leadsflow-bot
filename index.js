@@ -66,15 +66,21 @@ app.use(express.urlencoded({ extended: true }));
 app.use(session({ 
     secret: process.env.SESSION_SECRET || 'secret_flow', 
     resave: false, 
-    saveUninitialized: true 
+    saveUninitialized: true,
+    cookie: {
+        domain: '.ledsflow.cloud', // O PONTO ANTES é a mágica. Permite que o cookie valha para TODOS os subdomínios.
+        secure: true, // Já que estamos usando HTTPS
+        maxAge: 24 * 60 * 60 * 1000 // 1 dia
+    }
 }));
 
 app.use(async (req, res, next) => {
     const host = req.headers.host; // ex: rissatomotors.ledsflow.cloud
+    console.log(`🔍 Host recebido: ${host}`); // LOG 1
     const partes = host.split('.');
     
     let subdominio = null;
-
+    
     // Se tiver 3 partes ou mais, a primeira é o subdomínio (ex: rissatomotors)
     if (partes.length >= 3) {
         subdominio = partes[0];
@@ -83,6 +89,7 @@ app.use(async (req, res, next) => {
     else if (host.includes('195.200.6.54')) {
         subdominio = '195.200.6.54';
     }
+    console.log(`🔍 Subdomínio extraído: ${subdominio}`); // LOG 2
 
     if (subdominio && subdominio !== 'www') {
         try {
