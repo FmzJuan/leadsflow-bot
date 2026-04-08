@@ -2,7 +2,7 @@
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') }); // Carrega o .env para o teste
 
-const { extrairDadosDoERP } = require('./erpSync');
+const { extrairDadosDoERP } = require('../erpSync');
 
 // 1. Simulamos os dados que o index.js buscaria no PostgreSQL
 const mockClienteId = 1; 

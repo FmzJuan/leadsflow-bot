@@ -1,5 +1,5 @@
 // Arquivo: Chat/RissatoMotors/api.js
-const { agendarMensagens } = require('./scheduler');
+const { agendarMensagens } = require('../scheduler');
 
 async function receberDadosERP(req, res) {
     try {
