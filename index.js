@@ -8,6 +8,9 @@ const session = require('express-session');
 const cron = require('node-cron');
 const bcrypt = require('bcrypt');
 
+const RedisStore = require("connect-redis").default;
+const Redis = require("ioredis");
+
 // workers e reddis
 const { adicionarAoFluxoRPA } = require('./queues/rpaqueue');
 require('./workers/rpaworker');
@@ -58,19 +61,27 @@ cron.schedule('0 18 * * *', async () => {
 }, {
     timezone: "America/Sao_Paulo"
 });
+const redisClient = new Redis({
+    host: 'redis-xuvzv6u729iprtgzr8tci9ps-134858522337', // Use o nome do container do seu Redis
+    port: 6379
+});
 // --- CONFIGURAÇÕES DA DASHBOARD ---
 app.set('view engine', 'ejs');
+app.set('trust proxy', 1); // Confia no Cloudflare para gerenciar o HTTPS
 app.use(express.static('public'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(session({ 
+    store: new RedisStore({ client: redisClient }),
     secret: process.env.SESSION_SECRET || 'secret_flow', 
-    resave: false, 
-    saveUninitialized: true,
+    resave: false, // Força a gravar a sessão mesmo sem modificação
+    saveUninitialized: false, 
+    proxy: true, // Essencial para subdomínios + Cloudflare
     cookie: {
-        domain: '.ledsflow.cloud', // O PONTO ANTES é a mágica. Permite que o cookie valha para TODOS os subdomínios.
-        secure: true, // Já que estamos usando HTTPS
-        maxAge: 24 * 60 * 60 * 1000 // 1 dia
+        domain: '.ledsflow.cloud', // O ponto no início permite que o login valha para todos os subdomínios
+        secure: true, 
+        sameSite: 'lax', // Permite que o cookie transite entre subdomínios
+        maxAge: 24 * 60 * 60 * 1000 
     }
 }));
 
@@ -125,25 +136,35 @@ app.post('/login', async (req, res) => {
     const password = (req.body.password || req.body.senha || '').trim();
 
     try {
-        // Login para Clientes (Multi-tenant)
+        let usuarioValido = false;
+
         if (req.cliente) {
             const emailBanco = (req.cliente.email_contato || '').toLowerCase().trim();
-
             if (username === emailBanco) {
                 const match = await bcrypt.compare(password, req.cliente.senha_dashboard);
-                
                 if (match) {
                     req.session.logged = true;
-                    req.session.clienteId = req.cliente.id; 
-                    return res.redirect('/');
+                    req.session.clienteId = req.cliente.id;
+                    usuarioValido = true;
                 }
             }
         }
 
-        // Login para Admin Global (Vem do .env)
-        if (username === process.env.PANEL_USER && password === process.env.PANEL_PASS) {
+        // Login Admin Global
+        if (!usuarioValido && username === process.env.PANEL_USER && password === process.env.PANEL_PASS) {
             req.session.logged = true;
-            return res.redirect('/');
+            usuarioValido = true;
+        }
+
+        if (usuarioValido) {
+            // FORÇA O SALVAMENTO NO REDIS ANTES DE REDIRECIONAR
+            return req.session.save((err) => {
+                if (err) {
+                    console.error("❌ Erro ao salvar sessão no Redis:", err);
+                    return res.status(500).send("Erro ao processar login.");
+                }
+                return res.redirect('/');
+            });
         }
 
         res.send('<script>alert("Usuário ou senha inválidos!"); window.location="/login";</script>');
