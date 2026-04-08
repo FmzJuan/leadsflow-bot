@@ -39,9 +39,15 @@ services:
       - ledsflow_sessions:/usr/src/app/sessions
     environment:
       - NODE_ENV=production
-      - SESSION_SECRET=${SESSION_SECRET} # Use a variável do .env/Coolify aqui também
-      - DB_HOST=db # O nome do serviço no compose vira o host na rede interna
+      - SESSION_SECRET=${SESSION_SECRET}
+      - DB_HOST=db
       - REDIS_HOST=redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
 volumes:
   postgres_data:

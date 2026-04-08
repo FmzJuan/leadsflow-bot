@@ -30,7 +30,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(sessionConfig);
 app.use(tenantMiddleware);
-
+app.get('/health', (req, res) => res.status(200).send('OK'));
 // --- ROTAS MODULARIZADAS ---
 const authRoutes = require('./routes/auth');
 const dashboardRoutes = require('./routes/dashboard');
