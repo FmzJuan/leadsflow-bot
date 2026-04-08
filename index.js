@@ -8,8 +8,10 @@ const session = require('express-session');
 const cron = require('node-cron');
 const bcrypt = require('bcrypt');
 
-let RedisStore = require("connect-redis").default || require("connect-redis");
-const Redis = require("ioredis");
+// 1. Importa apenas a CLASSE do gerenciador (sem criar nova conexão aqui)
+const { RedisStore } = require("connect-redis");
+// 2. Importa a SUA conexão já pronta do arquivo Database/redis
+const redisClient = require('./DataBase/redis');
 
 // workers e reddis
 const { adicionarAoFluxoRPA } = require('./queues/rpaqueue');
@@ -61,10 +63,7 @@ cron.schedule('0 18 * * *', async () => {
 }, {
     timezone: "America/Sao_Paulo"
 });
-const redisClient = new Redis({
-    host: 'redis-xuvzv6u729iprtgzr8tci9ps-134858522337', // Use o nome do container do seu Redis
-    port: 6379
-});
+
 // --- CONFIGURAÇÕES DA DASHBOARD ---
 app.set('view engine', 'ejs');
 app.set('trust proxy', 1); // Confia no Cloudflare para gerenciar o HTTPS
