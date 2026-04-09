@@ -30,8 +30,8 @@ services:
     build: .
     container_name: ledsflow
     restart: always
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"   # <-- A MÁGICA ACONTECE AQUI! Trocamos 'ports' por 'expose'
     depends_on:
       - db
       - redis
