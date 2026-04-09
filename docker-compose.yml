@@ -44,7 +44,13 @@ services:
       - DB_PASS=${DB_PASS}
       - DB_NAME=${DB_NAME}
       - REDIS_HOST=redis
-    # REMOVEMOS O HEALTHCHECK PARA FORÇAR O STATUS "HEALTHY" AUTOMÁTICO
+    # ADICIONADO: O "Médico" do sistema agora usa o wget que instalamos no Dockerfile
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   postgres_data:

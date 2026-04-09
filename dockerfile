@@ -11,7 +11,9 @@ WORKDIR /app
 # Configuração para evitar travamentos no apt-get
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Adicionado wget para o Health Check e mantido as libs para o Puppeteer/Baileys
 RUN apt-get update && apt-get install -y \
+    wget \
     chromium \
     ffmpeg \
     libnss3 \
@@ -27,6 +29,7 @@ RUN apt-get update && apt-get install -y \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Configurações do Puppeteer para usar o Chromium do sistema (mais estável em Linux)
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 

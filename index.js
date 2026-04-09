@@ -25,8 +25,7 @@ module.exports = { io };
 // --- CONFIGURAÇÕES GLOBAIS ---
 app.set('view engine', 'ejs');
 app.set('trust proxy', 1);
-app.use(express.static('public'));
-app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(sessionConfig);
 app.use(tenantMiddleware);
