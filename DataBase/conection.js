@@ -4,8 +4,8 @@ const { Pool } = require('pg');
 const pool = new Pool({
     user: process.env.DB_USER || 'postgres',
     host: process.env.DB_HOST || 'localhost',
-    database: process.env.DB_NAME || 'leadsflow',
-    password: process.env.DB_PASS || 'suasenha', // <-- Aqui estava o erro apontado pelo Manus
+    database: process.env.DB_NAME || 'bot_vendas_db',
+    password: process.env.DB_PASS || 'admin_password_123', // <-- Aqui estava o erro apontado pelo Manus
     port: process.env.DB_PORT || 5432,
 });
 
