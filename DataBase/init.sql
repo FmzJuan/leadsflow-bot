@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS leads (
 INSERT INTO clientes_config (nome_oficina, subdominio, google_sheets_id, email_contato, senha_dashboard)
 VALUES (
     'Rissato Motors', 
-    'rissato', 
+    'rissatomotors', 
     '12tKq9rxFSe-7i4vnLxGIF694ytdhRd_Is5P50CXi9G0', 
     'contato@rissatomotors.com.br', 
     'RM#120690'

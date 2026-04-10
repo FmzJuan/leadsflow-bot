@@ -6,6 +6,7 @@ const { query } = require('../DataBase/conection');
 const { adicionarAoFluxoRPA } = require('../queues/rpaqueue');
 const { gerarRelatorioPDF } = require('../Functions/report.js');
 const { getClientSocket } = require('../Engine/whatsapp');
+const { processarDadosERP } = require('../Controllers/webhookController');
 
 // Teste para envio de mensagens
 router.get('/teste-post-venda', async (req, res) => {
@@ -25,31 +26,35 @@ router.get('/teste-post-venda', async (req, res) => {
     }
 });
 
-// Webhook Genérico
+// O seu NOVO Webhook Genérico no routes/api.js
+// O seu NOVO Webhook Genérico no routes/api.js
 router.post('/webhook/:subdominio', async (req, res) => {
     const subdominio = req.params.subdominio;
-    const token = req.headers['authorization'];
+    // CORREÇÃO 1: Faltou pegar o campo específico de autorização
+    const token = req.headers; 
 
     try {
-        const result = await query('SELECT api_token FROM clientes_config WHERE subdominio = $1', [subdominio]);
+        // CORREÇÃO 2: Faltou passar a variável para a query do Postgres
+        const result = await query('SELECT id, api_token FROM clientes_config WHERE subdominio = $1',);
+        
         if (result.rows.length === 0) return res.status(404).json({ error: "Cliente não encontrado." });
         
-        const tokenCliente = result.rows[0].api_token;
+        // CORREÇÃO 3: Precisamos pegar o primeiro item do array de respostas
+        const cliente = result.rows; 
         
-        if (token !== `Bearer ${tokenCliente}`) {
-            console.log(`⚠️ [Segurança] Tentativa de acesso bloqueada no webhook do cliente ${subdominio}.`);
+        if (token !== `Bearer ${cliente.api_token}`) {
+            console.log(`⚠️ Tentativa de acesso bloqueada no webhook do cliente ${subdominio}.`);
             return res.status(403).json({ error: "Acesso Negado. Token inválido." });
         }
 
-        const apiPath = path.join(__dirname, '..', 'Chat', subdominio, 'api.js');
-        if (fs.existsSync(apiPath)) {
-            const clienteApi = require(apiPath);
-            clienteApi.receberDadosERP(req, res);
-        } else {
-            res.status(501).json({ error: "API não configurada para este cliente." });
-        }
+        // Repassa os dados do cliente para a requisição
+        req.cliente = { id: cliente.id };
+
+        // Chama a função pesada que está no Controller!
+        await processarDadosERP(req, res);
+
     } catch (err) {
-        console.error(`Erro no webhook do cliente ${subdominio}:`, err);
+        console.error(`Erro na autenticação do webhook do cliente ${subdominio}:`, err);
         res.status(500).json({ error: "Erro interno no servidor." });
     }
 });
