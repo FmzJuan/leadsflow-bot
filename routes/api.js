@@ -26,21 +26,17 @@ router.get('/teste-post-venda', async (req, res) => {
     }
 });
 
-// O seu NOVO Webhook Genérico no routes/api.js
-// O seu NOVO Webhook Genérico no routes/api.js
+// Webhook Genérico
 router.post('/webhook/:subdominio', async (req, res) => {
     const subdominio = req.params.subdominio;
-    // CORREÇÃO 1: Faltou pegar o campo específico de autorização
-    const token = req.headers; 
+    const token = req.headers['authorization']; // ✅ Corrigido: pega só o campo authorization
 
     try {
-        // CORREÇÃO 2: Faltou passar a variável para a query do Postgres
-        const result = await query('SELECT id, api_token FROM clientes_config WHERE subdominio = $1',);
+        const result = await query('SELECT id, api_token FROM clientes_config WHERE subdominio = $1', [subdominio]); // ✅ Corrigido: array com parâmetro
         
         if (result.rows.length === 0) return res.status(404).json({ error: "Cliente não encontrado." });
         
-        // CORREÇÃO 3: Precisamos pegar o primeiro item do array de respostas
-        const cliente = result.rows; 
+        const cliente = result.rows[0]; // ✅ Corrigido: pega o primeiro elemento do array
         
         if (token !== `Bearer ${cliente.api_token}`) {
             console.log(`⚠️ Tentativa de acesso bloqueada no webhook do cliente ${subdominio}.`);
@@ -50,7 +46,7 @@ router.post('/webhook/:subdominio', async (req, res) => {
         // Repassa os dados do cliente para a requisição
         req.cliente = { id: cliente.id };
 
-        // Chama a função pesada que está no Controller!
+        // Chama a função pesada que está no Controller
         await processarDadosERP(req, res);
 
     } catch (err) {
