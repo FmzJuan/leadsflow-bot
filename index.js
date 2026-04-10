@@ -45,6 +45,7 @@ io.on('connection', (socket) => {
 });
 
 // --- FUNÇÃO PRINCIPAL DO BOT ---
+// --- FUNÇÃO PRINCIPAL DO BOT ---
 async function start() {
     console.log("🚀 LeadsFlow SaaS: Buscando clientes ativos...");
     try {
@@ -54,14 +55,22 @@ async function start() {
         for (const cliente of clientes) {
             console.log(`⚙️ Iniciando motor para: ${cliente.nome_oficina}...`);
 
-            // Carrega o worker do cliente SE existir
             const workerPath = path.join(__dirname, 'Chat', cliente.subdominio, 'worker.js');
             let iniciarWorker = null;
             if (fs.existsSync(workerPath)) {
                 iniciarWorker = require(workerPath).iniciarWorker;
             }
+
+            // ✅ INICIA O CRONJOB DO CLIENTE
+            const cronPath = path.join(__dirname, 'Chat', cliente.subdominio, 'cron.js');
+            if (fs.existsSync(cronPath)) {
+                const cronCliente = require(cronPath);
+                if (typeof cronCliente.iniciarCronJobs === 'function') {
+                    cronCliente.iniciarCronJobs();
+                    console.log(`⏰ CronJob ativado para a oficina: ${cliente.nome_oficina}`);
+                }
+            }
             
-            // Passa o iniciarWorker como terceiro argumento
             await connectToWhatsApp(cliente.id, async (clienteId, sock, msg) => {
                 const fluxoPath = path.join(__dirname, 'Chat', cliente.subdominio, 'fluxo.js');
                 if (fs.existsSync(fluxoPath)) {
