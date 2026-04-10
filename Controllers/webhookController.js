@@ -1,4 +1,5 @@
 const { query } = require('../DataBase/conection');
+const { salvarNoSheets } = require('../Functions/googleSheets');
 
 async function processarDadosERP(req, res) {
     const leadsDoRPA = req.body.leads;
@@ -14,28 +15,52 @@ async function processarDadosERP(req, res) {
             const data6Meses = new Date(dataZero);
             data6Meses.setDate(data6Meses.getDate() + 180);
 
-            // 1. Cancela retornos antigos
+            // 1. Cancela retornos antigos no banco
             await query(`
                 UPDATE leads SET status_envio = 'cancelado_retorno', atualizado_em = CURRENT_TIMESTAMP
                 WHERE celular = $1 AND cliente_id = $2 AND tipo_envio = 'retorno_6meses' AND status_envio = 'pendente'
-            `, [lead.celular, clienteId]);
+            `, [lead.celular, clienteId]); // ✅ Parâmetros adicionados
 
-            // 2. Insere 24h
+            // 2. Insere 24h no banco
             await query(`
                 INSERT INTO leads (cliente_id, nome, celular, veiculo, data_saida, tipo_envio, data_agendada, status_envio)
                 VALUES ($1, $2, $3, $4, $5, 'pos_venda_24h', $6, 'pendente')
                 ON CONFLICT (cliente_id, celular, tipo_envio, data_saida) DO NOTHING;
-            `, [clienteId, lead.nome, lead.celular, lead.veiculo, lead.data_saida, data24h]);
+            `, [clienteId, lead.nome, lead.celular, lead.veiculo, lead.data_saida, data24h]); // ✅ Parâmetros adicionados
 
-            // 3. Insere 6 Meses
+            // 3. Insere 6 Meses no banco
             await query(`
                 INSERT INTO leads (cliente_id, nome, celular, veiculo, data_saida, tipo_envio, data_agendada, status_envio)
                 VALUES ($1, $2, $3, $4, $5, 'retorno_6meses', $6, 'pendente')
                 ON CONFLICT (cliente_id, celular, tipo_envio, data_saida) DO NOTHING;
-            `, [clienteId, lead.nome, lead.celular, lead.veiculo, lead.data_saida, data6Meses]);
+            `, [clienteId, lead.nome, lead.celular, lead.veiculo, lead.data_saida, data6Meses]); // ✅ Parâmetros adicionados
+
+            // 4. ESPELHO: ENVIANDO PARA O GOOGLE SHEETS
+            
+            // Monta a linha de 24h
+            const linha24h = [
+                data24h.toLocaleDateString('pt-BR'), // Coluna A: Data
+                lead.nome,                           // Coluna B: Nome
+                lead.celular,                        // Coluna C: WhatsApp
+                'Pós-Venda 24h',                     // Coluna D: Serviço
+                'Pendente'                           // Coluna E: Status
+            ];
+
+            // Monta a linha de 6 Meses ✅ Array estava vazio/faltando
+            const linha6Meses = [
+                data6Meses.toLocaleDateString('pt-BR'), // Coluna A: Data
+                lead.nome,                              // Coluna B: Nome
+                lead.celular,                           // Coluna C: WhatsApp
+                'Retorno 6 Meses',                      // Coluna D: Serviço
+                'Pendente'                              // Coluna E: Status
+            ];
+
+            // Chama a função passando os arrays
+            await salvarNoSheets(linha24h, clienteId);
+            await salvarNoSheets(linha6Meses, clienteId);
         }
 
-        res.json({ success: true, message: "Fila de agendamentos criada e atualizada com sucesso!" });
+        res.json({ success: true, message: "Fila criada no Banco e Espelhada na Planilha com sucesso!" });
     } catch (error) {
         console.error("Erro no processamento do ERP:", error);
         res.status(500).json({ error: "Erro interno no processamento de leads." });
