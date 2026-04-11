@@ -3,14 +3,16 @@ const { query } = require('../../DataBase/conection');
 const { dispararMensagemImediata } = require('./scheduler');
 
 function iniciarCronJobs() {
-    console.log("⏰ Motor de Agendamentos Iniciado. Teste a cada 1 minuto.");
+    console.log("⏰ Motor de Agendamentos Iniciado. Varredura programada para as 08:00 AM.");
 
-    cron.schedule('* * * * *', async () => {
+    // ✅ Roda todos os dias às 08:00 no fuso de São Paulo
+    cron.schedule('0 8 * * *', async () => {
         try {
+            // ✅ Ajuste cirúrgico do Fuso Horário na Query
             const result = await query(`
                 SELECT id, cliente_id, nome, celular, veiculo, tipo_envio 
                 FROM leads 
-                WHERE data_agendada <= CURRENT_DATE 
+                WHERE data_agendada <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date 
                 AND status_envio = 'pendente'
             `);
 
@@ -38,7 +40,7 @@ function iniciarCronJobs() {
         } catch (error) {
             console.error("❌ Erro ao rodar o CronJob diário:", error);
         }
-    });
+    }, { timezone: "America/Sao_Paulo" }); // Garante que o Node obedeça o horário BR
 }
 
 module.exports = { iniciarCronJobs };

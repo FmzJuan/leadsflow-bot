@@ -5,15 +5,23 @@ const { salvarNoSheets } = require('../../Functions/googleSheets');
 const { query } = require('../../DataBase/conection'); // ✅ Importado para dar baixa no banco
 
 async function enviarMensagemHumana(sock, jid, texto) {
+    // ✅ TRAVA DE SEGURANÇA: DRY-RUN
+    if (process.env.DRY_RUN === 'true') {
+        console.log(`\x1b[33m[DRY-RUN] Simulação ativada. Mensagem que seria enviada para ${jid}: \x1b[0m\n"${texto}"`);
+        return; // Retorna antes de chamar a API do WhatsApp
+    }
+
     try {
         await sock.sendPresenceUpdate('composing', jid);
         const tempoDigitando = Math.floor(Math.random() * (5000 - 3000 + 1)) + 3000;
         console.log(`[Worker] Simulando digitação por ${tempoDigitando / 1000}s para ${jid}...`);
         await new Promise(resolve => setTimeout(resolve, tempoDigitando));
+        
         await sock.sendMessage(jid, { text: texto });
         await sock.sendPresenceUpdate('paused', jid);
     } catch (error) {
         console.error(`[Worker] Erro ao enviar mensagem humana para ${jid}:`, error);
+        throw error; // Lança o erro para o BullMQ tentar novamente ou marcar como falha
     }
 }
 
