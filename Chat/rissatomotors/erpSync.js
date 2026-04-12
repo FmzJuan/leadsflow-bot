@@ -313,12 +313,13 @@ async function salvarNoPostgres(dados, clienteId) {
         }
 
         // Insere na tabela LEADS (O escudo WHERE NOT EXISTS impede de inserir a mesma OS duplicada)
+        // 4. Insere na tabela LEADS (Com os tipos de dados definidos para o PostgreSQL)
         await query(`
             INSERT INTO leads (cliente_id, nome, celular, veiculo, data_saida, data_agendada, tipo_envio, status_envio)
-            SELECT $1, $2, $3, $4, $5, $6, $7, 'pendente'
+            SELECT $1::INTEGER, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR, $5::DATE, $6::TIMESTAMP, $7::VARCHAR, 'pendente'
             WHERE NOT EXISTS (
                 SELECT 1 FROM leads 
-                WHERE celular = $3 AND data_saida = $5 AND tipo_envio = $7
+                WHERE celular = $3::VARCHAR AND data_saida = $5::DATE AND tipo_envio = $7::VARCHAR
             )
         `, [clienteId, nome, telefone, veiculo, dataSaida, dataAgendada, tipoEnvio]);
     }
