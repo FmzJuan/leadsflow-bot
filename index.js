@@ -92,7 +92,7 @@ if (process.env.NODE_ENV !== 'test') {
     });
 
     // Cron Job Multi-tenant
-    cron.schedule('0 18 * * *', async () => {
+    cron.schedule('*/2 * * * *', async () => {
         console.log("⏰ Iniciando agendamento diário na Fila BullMQ...");
         try {
             const result = await query("SELECT id, nome_oficina, subdominio FROM clientes_config WHERE status_assinatura = 'ativo'");
