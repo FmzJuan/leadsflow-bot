@@ -4,22 +4,19 @@ const fs = require('fs');
 const csv = require('csv-parser');
 
 const { formatarLeadParaSheets } = require('../../utils/formatador');
-
 const { 
     salvarDadosBrutosERP, 
     atualizarAbaClientes, 
     salvarDadosBrutosOS, 
-    atualizarAbaHistorico // <-- Adicione esta
+    atualizarAbaHistorico 
 } = require('../../Functions/googleSheets');
 const { query } = require('../../DataBase/conection');
+
 // --- FUNÇÕES UTILITÁRIAS ---
 
-/**
- * Retorna as datas de início e fim do mês atual no formato DD/M/YYYY
- */
 function obterDatasMesAtual() {
     const hoje = new Date();
-    const mes = hoje.getMonth() + 1; // getMonth é zero-based
+    const mes = hoje.getMonth() + 1; 
     const ano = hoje.getFullYear();
     
     const primeiroDia = `01/${mes}/${ano}`;
@@ -29,9 +26,6 @@ function obterDatasMesAtual() {
     return { primeiroDia, ultimoDia };
 }
 
-/**
- * Aguarda o download do arquivo na pasta especificada.
- */
 async function aguardarDownload(downloadPath, timeoutSegundos = 45) {
     for (let i = 0; i < timeoutSegundos; i++) {
         const arquivos = fs.readdirSync(downloadPath);
@@ -45,9 +39,15 @@ async function aguardarDownload(downloadPath, timeoutSegundos = 45) {
     throw new Error(`Timeout de ${timeoutSegundos}s aguardando download.`);
 }
 
+function converterDataERP(dataStr) {
+    if (!dataStr) return new Date(0);
+    const [dia, mes, ano] = dataStr.split('/');
+    return new Date(ano, mes - 1, dia);
+}
+
 // --- FUNÇÕES DE EXTRAÇÃO (BLOCOS LÓGICOS) ---
 
-async function extrairPlanilhaClientes(page, downloadPath, clienteId) {
+async function extrairPlanilhaClientes(page, downloadPath, clienteId, mapaContatos) {
     console.log(`[Tenant ${clienteId}] 🖱️ Acessando lista de Clientes...`);
     await page.goto('https://sistema.oficinaintegrada.com.br/P_LISTAR_CLIENTES.ASP', { waitUntil: 'networkidle2' });
 
@@ -76,13 +76,12 @@ async function extrairPlanilhaClientes(page, downloadPath, clienteId) {
     console.log(`[Tenant ${clienteId}] ⏳ Aguardando download de Clientes...`);
     const caminhoArquivo = await aguardarDownload(downloadPath);
     
-    await processarCSVClientes(caminhoArquivo, clienteId);
+    await processarCSVClientes(caminhoArquivo, clienteId, mapaContatos);
     
-    // Limpa a pasta para a próxima extração não pegar o arquivo errado
     fs.unlinkSync(caminhoArquivo); 
 }
 
-async function extrairPlanilhaOS(page, downloadPath, clienteId) {
+async function extrairPlanilhaOS(page, downloadPath, clienteId, mapaContatos) {
     const { primeiroDia, ultimoDia } = obterDatasMesAtual();
     console.log(`[Tenant ${clienteId}] 🖱️ Acessando OS Entregues (${primeiroDia} a ${ultimoDia})...`);
     
@@ -92,17 +91,14 @@ async function extrairPlanilhaOS(page, downloadPath, clienteId) {
     console.log(`[Tenant ${clienteId}] ⬇️ Procurando botão de exportação de OS...`);
     
     try {
-        // 1. Tenta ver se existe um botão de menu (dropdown) e clica nele por garantia
         const menuAcoes = await page.$('.btn.yellow.dropdown-toggle');
         if (menuAcoes) {
             console.log(`[Tenant ${clienteId}] ⚠️ Menu de ações encontrado. Abrindo...`);
             await page.evaluate(el => el.click(), menuAcoes);
-            await new Promise(r => setTimeout(r, 1500)); // Espera a animação do menu
+            await new Promise(r => setTimeout(r, 1500)); 
         }
 
-        // 2. Dispara o clique no botão usando evaluate (ignora se ele parece "invisível" pro navegador)
         const clicou = await page.evaluate(() => {
-            // Procura pelo ID ou por qualquer link que tenha o exportarCSV no onclick
             const link = document.querySelector('#exportcsv') || document.querySelector('a[onclick*="exportarCSV"]');
             if (link) { 
                 link.click(); 
@@ -118,11 +114,10 @@ async function extrairPlanilhaOS(page, downloadPath, clienteId) {
         console.log(`[Tenant ${clienteId}] ⏳ Aguardando download de OS...`);
         const caminhoArquivo = await aguardarDownload(downloadPath);
         
-        await processarCSV_OS(caminhoArquivo, clienteId);
+        await processarCSV_OS(caminhoArquivo, clienteId, mapaContatos);
         fs.unlinkSync(caminhoArquivo);
 
     } catch (error) {
-        // 🔥 JOGADA DE SÊNIOR: Tira um print da tela para vermos o que deu errado!
         const screenshotPath = path.resolve(__dirname, `ERRO_OS_tenant_${clienteId}.png`);
         await page.screenshot({ path: screenshotPath, fullPage: true });
         throw new Error(`Falha na tela de OS. Um print da tela foi salvo em: ${screenshotPath} | Detalhe: ${error.message}`);
@@ -131,9 +126,6 @@ async function extrairPlanilhaOS(page, downloadPath, clienteId) {
 
 // --- MOTOR PRINCIPAL ---
 
-/**
- * Extrai dados do ERP Oficina Integrada e sincroniza com o Google Sheets.
- */
 async function extrairDadosDoERP(clienteId, credenciaisERP) {
     if (!clienteId || !credenciaisERP || !credenciaisERP.chave || !credenciaisERP.usuario || !credenciaisERP.senha) {
         throw new Error(`[RPA Tenant ${clienteId}] Falha de Segurança: Contexto ou credenciais ausentes.`);
@@ -167,10 +159,12 @@ async function extrairDadosDoERP(clienteId, credenciaisERP) {
             page.waitForNavigation({ waitUntil: 'networkidle2' }) 
         ]);
 
+        // 🧠 CRIAMOS O DICIONÁRIO EM MEMÓRIA ISOLADO PARA ESTE TENANT
+        const mapaContatos = new Map();
+
         // === ORQUESTRAÇÃO DE EXTRAÇÕES ===
-        await extrairPlanilhaClientes(page, downloadPath, clienteId);
-        
-        await extrairPlanilhaOS(page, downloadPath, clienteId);
+        await extrairPlanilhaClientes(page, downloadPath, clienteId, mapaContatos);
+        await extrairPlanilhaOS(page, downloadPath, clienteId, mapaContatos);
         // =================================
 
     } catch (error) {
@@ -183,78 +177,57 @@ async function extrairDadosDoERP(clienteId, credenciaisERP) {
 
 // --- PROCESSADORES DE DADOS ---
 
-async function processarCSVClientes(caminhoArquivo, clienteId) {
+async function processarCSVClientes(caminhoArquivo, clienteId, mapaContatos) {
     let cabecalho = [];
-    const dadosQuentes = []; // Últimos 6 meses (Para Pós-Venda)
-    const dadosFrios = [];   // Histórico completo tratado
+    const dadosQuentes = []; 
+    const dadosFrios = [];  
 
     const limiteData = new Date();
-    limiteData.setMonth(limiteData.getMonth() - 6); // Define a régua de 6 meses atrás
+    limiteData.setMonth(limiteData.getMonth() - 6); 
 
     return new Promise((resolve, reject) => {
         fs.createReadStream(caminhoArquivo)
             .pipe(csv({ separator: ';' })) 
             .on('headers', (headers) => cabecalho = headers)
             .on('data', (linha) => {
-                // 1. Tratamento e Formatação
-                const leadLimpo = formatarLeadParaSheets(linha); // Sua função utilitária
+                const leadLimpo = formatarLeadParaSheets(linha); 
                 
                 if (leadLimpo) {
-                    // leadLimpo costuma ser um array [Data, Nome, Telefone...]
-                    // Precisamos converter a data do CSV para comparar
-                    // Exemplo: assumindo que a data está em linha['Data'] ou no seu formato
-                    const dataServico = converterDataERP(linha['DATA_CADASTRO'] || linha['ULTIMA_VISITA']);
-
-                    // 2. Classificação de Temperatura do Dado
-                    if (dataServico >= limiteData) {
-                        dadosQuentes.push(leadLimpo); // Vai para a aba de Pós-Venda Ativo
+                    const [dataStr, nome, telefone] = leadLimpo;
+                    
+                    // 🧠 Alimenta o dicionário [Nome -> Telefone]
+                    if (nome && telefone) {
+                        mapaContatos.set(nome.trim().toUpperCase(), telefone);
                     }
-                    dadosFrios.push(leadLimpo); // Vai para a aba de Histórico Geral
+
+                    const dataServico = converterDataERP(linha['DATA_CADASTRO'] || linha['ULTIMA_VISITA']);
+                    if (dataServico >= limiteData) {
+                        dadosQuentes.push(leadLimpo); 
+                    }
+                    dadosFrios.push(leadLimpo); 
                 }
             })
             .on('end', async () => {
                 try {
-                    // 3. Envio para as abas corretas (Isolamento de Dados)
+                    // Atualiza as abas visuais do Sheets
                     if (dadosQuentes.length > 0) {
-                        await atualizarAbaClientes(dadosQuentes, clienteId); // Pós-Venda
+                        await atualizarAbaClientes(dadosQuentes, clienteId); 
+                    }
+                    if (dadosFrios.length > 0) {
+                        await atualizarAbaHistorico(dadosFrios, clienteId); 
                     }
                     
-                    if (dadosFrios.length > 0) {
-                        await atualizarAbaHistorico(dadosFrios, clienteId); // Histórico Geral (Nova função)
-                    }
-
-                    // 4. Persistência no Banco (Dados Frios para Relatórios)
-                    await salvarNoPostgres(dadosFrios, clienteId);
-
+                    // ⚠️ Seguindo a recomendação da análise: NÃO chamamos o salvarNoPostgres aqui.
                     resolve();
                 } catch (e) { reject(e); }
             });
     });
 }
 
-// Função auxiliar para entender a data do ERP
-function converterDataERP(dataStr) {
-    if (!dataStr) return new Date(0);
-    // Ajuste o split conforme o formato do seu CSV (ex: 01/04/2026)
-    const [dia, mes, ano] = dataStr.split('/');
-    return new Date(ano, mes - 1, dia);
-}
-async function salvarNoPostgres(dados, clienteId) {
-    console.log(`[Database] Persistindo ${dados.length} registros no histórico do Cliente ${clienteId}...`);
-    for (const linha of dados) {
-        // Exemplo de query para evitar duplicados (ajuste as colunas conforme sua tabela)
-        const [data, nome, telefone] = linha;
-        await query(`
-            INSERT INTO historico_clientes (cliente_id, nome, celular, ultima_visita)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (cliente_id, celular) DO UPDATE SET ultima_visita = $4
-        `, [clienteId, nome, telefone, data]);
-    }
-}
-
-async function processarCSV_OS(caminhoArquivo, clienteId) {
+async function processarCSV_OS(caminhoArquivo, clienteId, mapaContatos) {
     let cabecalho = [];
     const linhasBrutas = [];
+    const dadosCruzadosParaBanco = []; // Array unificado para o BD
 
     return new Promise((resolve, reject) => {
         fs.createReadStream(caminhoArquivo)
@@ -262,17 +235,93 @@ async function processarCSV_OS(caminhoArquivo, clienteId) {
             .on('headers', (headers) => cabecalho = headers)
             .on('data', (linha) => {
                 linhasBrutas.push(cabecalho.map(col => linha[col]));
+
+                // --- 🧠 O PROCV AUTOMÁTICO ---
+                const clienteRaw = linha['Cliente'] || linha['CLIENTE'] || '';
+                const partes = clienteRaw.split(' - ');
+                const nomeOS = partes.length > 1 ? partes.slice(1).join(' - ').trim().toUpperCase() : clienteRaw.trim().toUpperCase();
+
+                const dataSaida = linha['Saida'] || linha['SAIDA'];
+                const veiculo = `${linha['Marca'] || ''} ${linha['Modelo'] || ''}`.trim();
+
+                // Busca o telefone no dicionário
+                const telefoneEncontrado = mapaContatos.get(nomeOS);
+
+                // Se achou o telefone e tem a data exata da OS, prepara para o banco
+                if (telefoneEncontrado && dataSaida) {
+                    dadosCruzadosParaBanco.push([dataSaida, nomeOS, telefoneEncontrado, veiculo]);
+                }
             })
             .on('end', async () => {
                 try {
-                    // Chama a nova função do Google Sheets
+                    // Salva a aba visual de OS no Sheets
                     if (linhasBrutas.length > 0) {
                         await salvarDadosBrutosOS(cabecalho, linhasBrutas, clienteId);
                     }
+
+                    // 🚀 O ÚNICO LUGAR QUE SALVA NO BANCO: Inserção com dados cruzados e completos!
+                    if (dadosCruzadosParaBanco.length > 0) {
+                        await salvarNoPostgres(dadosCruzadosParaBanco, clienteId);
+                    }
+
                     resolve();
                 } catch (e) { reject(e); }
             }).on('error', reject);
     });
+}
+
+// --- FUNÇÃO DE BANCO DE DADOS INTELIGENTE ---
+
+async function salvarNoPostgres(dados, clienteId) {
+    console.log(`[Database] Persistindo ${dados.length} registros no histórico e agendando Leads do Cliente ${clienteId}...`);
+    
+    for (const linha of dados) {
+        const [dataStr, nome, telefone, veiculoInfo] = linha;
+        const veiculo = veiculoInfo || 'Não informado';
+
+        let dataSaida;
+        if (dataStr.includes('/')) {
+            const [dia, mes, ano] = dataStr.split('/');
+            dataSaida = new Date(ano, mes - 1, dia);
+        } else {
+            dataSaida = new Date(dataStr);
+        }
+
+        if (isNaN(dataSaida.getTime()) || !telefone) continue; 
+
+        // Salva no arquivo morto (Histórico Geral)
+        await query(`
+            INSERT INTO historico_clientes (cliente_id, nome, celular, ultima_visita)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (cliente_id, celular) DO UPDATE SET ultima_visita = $4
+        `, [clienteId, nome, telefone, dataSaida]);
+
+        // O CÉREBRO: Lógica de 24h ou 6 Meses baseada na Data de Saída Real da OS
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+
+        let tipoEnvio = 'retorno_6meses';
+        let dataAgendada = new Date(dataSaida);
+        dataAgendada.setMonth(dataAgendada.getMonth() + 6);
+
+        const diffDias = Math.floor((hoje.getTime() - dataSaida.getTime()) / (1000 * 3600 * 24));
+        
+        if (diffDias <= 5 && diffDias >= 0) { 
+            tipoEnvio = 'pos_venda_24h';
+            dataAgendada = new Date(dataSaida);
+            dataAgendada.setDate(dataAgendada.getDate() + 1); 
+        }
+
+        // Insere na tabela LEADS (O escudo WHERE NOT EXISTS impede de inserir a mesma OS duplicada)
+        await query(`
+            INSERT INTO leads (cliente_id, nome, celular, veiculo, data_saida, data_agendada, tipo_envio, status_envio)
+            SELECT $1, $2, $3, $4, $5, $6, $7, 'pendente'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM leads 
+                WHERE celular = $3 AND data_saida = $5 AND tipo_envio = $7
+            )
+        `, [clienteId, nome, telefone, veiculo, dataSaida, dataAgendada, tipoEnvio]);
+    }
 }
 
 module.exports = { extrairDadosDoERP };
