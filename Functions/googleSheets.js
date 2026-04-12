@@ -239,16 +239,33 @@ async function atualizarAbaHistorico(dados, clienteId) {
     try {
         const spreadsheetId = await getSheetId(clienteId);
         if (!spreadsheetId) return;
-        
+
+        // --- AJUSTE SOLICITADO ---
+        // Filtramos cada linha para manter apenas os primeiros dados (Data, Nome, Telefone)
+        // e remover qualquer coluna que contenha "Pendente" ou "Aguardando"
+        const dadosTratados = dados.map(linha => {
+            if (Array.isArray(linha)) {
+                // Retorna apenas as 3 ou 4 primeiras colunas (Data, Nome, Telefone, Veículo se houver)
+                // Isso elimina o "Pendente" e "Aguardando" que vinham depois.
+                return linha.slice(0, 4); 
+            }
+            return linha;
+        });
+
         // Limpa e atualiza a aba de Histórico Geral
-        await sheets.spreadsheets.values.clear({ spreadsheetId, range: 'Histórico_Geral!A:ZZ' });
+        await sheets.spreadsheets.values.clear({ 
+            spreadsheetId, 
+            range: 'Histórico_Geral!A:ZZ' 
+        });
+
         await sheets.spreadsheets.values.append({
             spreadsheetId,
             range: 'Histórico_Geral!A1',
             valueInputOption: 'USER_ENTERED',
-            resource: { values: dados },
+            resource: { values: dadosTratados },
         });
-        console.log(`✅ [Sheets] Histórico Geral atualizado para o Cliente ${clienteId}.`);
+
+        console.log(`✅ [Sheets] Histórico Geral (Limpo) atualizado para o Cliente ${clienteId}.`);
     } catch (error) {
         console.error(`❌ Erro ao salvar Histórico no Sheets:`, error.message);
     }
