@@ -235,6 +235,7 @@ async function atualizarAbaClientes(dadosLimpos, clienteId) {
         console.error(`❌ Erro ao salvar clientes ERP no Sheets (Cliente ${clienteId}):`, error.message);
     }
 }
+
 async function atualizarAbaHistorico(dados, clienteId) {
     try {
         const spreadsheetId = await getSheetId(clienteId);
@@ -270,6 +271,7 @@ async function atualizarAbaHistorico(dados, clienteId) {
         console.error(`❌ Erro ao salvar Histórico no Sheets:`, error.message);
     }
 }
+
 /**
  * [NOVO] Salva o CSV inteiro das Ordens de Serviço na aba "ERP_OS"
  */
@@ -301,6 +303,68 @@ async function salvarDadosBrutosOS(cabecalho, linhas, clienteId) {
     }
 }
 
+/**
+ * [NOVO] Sincroniza a tabela 'leads' do Banco de Dados com a aba 'Base_PosVenda' no Sheets
+ */
+async function sincronizarBasePosVenda(clienteId) {
+    try {
+        const spreadsheetId = await getSheetId(clienteId);
+        if (!spreadsheetId) return;
+
+        console.log(`🔄 Iniciando sincronização da Base_PosVenda para o Cliente ${clienteId}...`);
+
+        // 1. Busca os dados no PostgreSQL
+        const querySQL = `
+            SELECT 
+                nome, 
+                celular, 
+                veiculo, 
+                to_char(data_saida, 'DD/MM/YYYY') as saida, 
+                tipo_envio, 
+                to_char(data_agendada, 'DD/MM/YYYY') as agendado, 
+                status_envio 
+            FROM leads 
+            WHERE cliente_id = $1
+            ORDER BY data_agendada ASC;
+        `;
+        const result = await query(querySQL, [clienteId]);
+
+        if (result.rows.length === 0) {
+            console.log(`⚠️ Nenhum lead encontrado no banco para espelhar.`);
+            return;
+        }
+
+        // 2. Mapeia os dados do Banco para o formato de Matriz do Google Sheets
+        const dadosParaSheets = result.rows.map(lead => [
+            lead.nome || '',
+            lead.celular || '',
+            lead.veiculo || '',
+            lead.saida || '',
+            lead.tipo_envio || '',
+            lead.agendado || '',
+            lead.status_envio || ''
+        ]);
+
+        // 3. Limpa a aba Base_PosVenda (A partir da linha A2 para não apagar o cabeçalho)
+        await sheets.spreadsheets.values.clear({ 
+            spreadsheetId, 
+            range: 'Base_PosVenda!A2:Z' 
+        });
+
+        // 4. Escreve os dados frescos na aba
+        await sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: 'Base_PosVenda!A2',
+            valueInputOption: 'USER_ENTERED', 
+            resource: { values: dadosParaSheets },
+        });
+
+        console.log(`✅ [Sheets] Sucesso! ${dadosParaSheets.length} registros espelhados na Base_PosVenda (Cliente ${clienteId}).`);
+    } catch (error) {
+        console.error(`❌ Erro ao sincronizar Base_PosVenda com o banco de dados:`, error.message);
+    }
+}
+
 // Não esqueça de exportar a nova função aqui embaixo!
 module.exports = { 
     salvarNoSheets, 
@@ -309,5 +373,6 @@ module.exports = {
     salvarDadosBrutosERP, 
     atualizarAbaClientes,
     salvarDadosBrutosOS,
-    atualizarAbaHistorico // <-- Adicionado
+    atualizarAbaHistorico,
+    sincronizarBasePosVenda // <-- Adicionado
 };
