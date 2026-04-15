@@ -64,10 +64,20 @@ async function gerarRelatorioPDF(clienteId) {
                         doc.fillColor('#374151');
                     }
 
+                    // --- NOVA LÓGICA DE STATUS AQUI ---
+                    let statusReal = lead.status_envio || 'Registrado';
+                    if (lead.status_envio === 'pendente') {
+                        statusReal = 'Pendente (Agendado)';
+                    } else if (lead.status_envio === 'enviado') {
+                        statusReal = 'Mensagem Enviada';
+                    } else if (lead.status_envio === 'historico_legado') {
+                        statusReal = 'Histórico Arquivado';
+                    }
+
                     doc.text(index + 1, itemCodeX, currentY);
                     doc.text(lead.nome || 'Sem nome', descriptionX, currentY, { width: 180, ellipsis: true });
                     doc.text(lead.celular || 'S/N', phoneX, currentY);
-                    doc.text('Capturado', dateX, currentY);
+                    doc.text(statusReal, dateX, currentY); // <-- Status dinâmico impresso aqui
 
                     currentY += 20;
 
