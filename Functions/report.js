@@ -39,8 +39,8 @@ async function gerarRelatorioPDF(clienteId) {
             const tableTop = 150;
             const itemCodeX = 50;
             const descriptionX = 100;
-            const phoneX = 300;
-            const dateX = 450;
+            const phoneX = 290; // Afastei o telefone um pouquinho
+            const dateX = 420;  // Afastei o status pra esquerda, dando espaço de sobra!
 
             doc.fillColor('#4b5563').font('Helvetica-Bold').fontSize(10);
             doc.text('ID', itemCodeX, tableTop);
@@ -77,8 +77,7 @@ async function gerarRelatorioPDF(clienteId) {
                     doc.text(index + 1, itemCodeX, currentY);
                     doc.text(lead.nome || 'Sem nome', descriptionX, currentY, { width: 180, ellipsis: true });
                     doc.text(lead.celular || 'S/N', phoneX, currentY);
-                    doc.text(statusReal, dateX, currentY); // <-- Status dinâmico impresso aqui
-
+                    doc.text(statusReal, dateX, currentY, { lineBreak: false });
                     currentY += 20;
 
                     if (currentY > 750) {
