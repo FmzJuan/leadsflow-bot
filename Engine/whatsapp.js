@@ -1,22 +1,24 @@
+// Engine/whatsapp.js
+
 const { 
     default: makeWASocket, 
     useMultiFileAuthState, 
     DisconnectReason,
     fetchLatestBaileysVersion 
 } = require("@whiskeysockets/baileys");
-const qrcode = require("qrcode-terminal");
 const pino = require("pino");
 const path = require("path");
 const fs = require("fs"); 
-const redis = require("../DataBase/redis"); // Importa a conexão Redis 
+const redis = require("../DataBase/redis");
+const { query } = require('../DataBase/conection');
 
 const sessions = new Map();
-const workersAtivos = new Set(); // ✅ Evita ativar o worker mais de uma vez
+const workersAtivos = new Set();
 
 async function connectToWhatsApp(clienteId, onMessage, onWorker) {
     const { io } = require('../index'); 
 
-    const { version, isLatest } = await fetchLatestBaileysVersion();
+    const { version } = await fetchLatestBaileysVersion();
     console.log(`- Iniciando WhatsApp para Cliente ID: ${clienteId} (v${version.join('.')})`);
 
     const sessionsDir = path.resolve(__dirname, '..', 'sessions');
@@ -51,7 +53,7 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
                 console.log(`🛑 Cliente ${clienteId} desconectou ou sessão expirou. Limpando dados...`);
                 sessions.delete(clienteId);
-                workersAtivos.delete(clienteId); // ✅ Permite reativar na reconexão
+                workersAtivos.delete(clienteId);
 
                 if (fs.existsSync(authPath)) {
                     fs.rmSync(authPath, { recursive: true, force: true });
@@ -59,11 +61,11 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
                 }
 
                 io.emit(`new-log-${clienteId}`, { msg: `Sessão encerrada. Por favor, leia o QR Code novamente.`, type: 'error' });
-                setTimeout(() => connectToWhatsApp(clienteId, onMessage, onWorker), 2000); // ✅ passa onWorker
+                setTimeout(() => connectToWhatsApp(clienteId, onMessage, onWorker), 2000);
 
             } else {
                 console.log(`⚠️ Cliente ${clienteId} caiu (Erro: ${statusCode}). Reconectando...`);
-                setTimeout(() => connectToWhatsApp(clienteId, onMessage, onWorker), 5000); // ✅ passa onWorker
+                setTimeout(() => connectToWhatsApp(clienteId, onMessage, onWorker), 5000);
             }
 
         } else if (connection === 'open') {
@@ -71,7 +73,6 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
             sessions.set(clienteId, sock); 
             io.emit(`status-${clienteId}`, 'conectado');
 
-            // ✅ Ativa o worker UMA ÚNICA VEZ
             if (onWorker && typeof onWorker === 'function' && !workersAtivos.has(clienteId)) {
                 onWorker(sock);
                 workersAtivos.add(clienteId);
@@ -82,11 +83,23 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
 
     sock.ev.on('creds.update', saveCreds);
 
-        sock.ev.on('contacts.upsert', async (contacts) => {
+    // ✅ Salva usando o LID completo como chave (ex: "lid:67319736848503@lid")
+    sock.ev.on('contacts.upsert', async (contacts) => {
         for (const contact of contacts) {
             if (contact.lid && contact.id) {
-                await redis.set(`lid:${contact.lid}`, contact.id);
-                console.log(`[LID Mapper] Mapeado LID: ${contact.lid} -> JID: ${contact.id}`);
+                const chave = `lid:${contact.lid}`;
+                await redis.set(chave, contact.id);
+                console.log(`[LID Mapper] contacts.upsert → ${contact.lid} -> ${contact.id}`);
+
+                try {
+                    const numero = contact.id.replace('@s.whatsapp.net', '');
+                    await query(
+                        `UPDATE leads SET lid = $1 WHERE celular LIKE $2 AND (lid IS NULL OR lid = '')`,
+                        [contact.lid, `%${numero}%`]
+                    );
+                } catch (e) {
+                    console.error(`[LID Mapper] Erro ao salvar no banco:`, e.message);
+                }
             }
         }
     });
@@ -94,8 +107,19 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
     sock.ev.on('contacts.update', async (contacts) => {
         for (const contact of contacts) {
             if (contact.lid && contact.id) {
-                await redis.set(`lid:${contact.lid}`, contact.id);
-                console.log(`[LID Mapper] Atualizado LID: ${contact.lid} -> JID: ${contact.id}`);
+                const chave = `lid:${contact.lid}`;
+                await redis.set(chave, contact.id);
+                console.log(`[LID Mapper] contacts.update → ${contact.lid} -> ${contact.id}`);
+
+                try {
+                    const numero = contact.id.replace('@s.whatsapp.net', '');
+                    await query(
+                        `UPDATE leads SET lid = $1 WHERE celular LIKE $2 AND (lid IS NULL OR lid = '')`,
+                        [contact.lid, `%${numero}%`]
+                    );
+                } catch (e) {
+                    console.error(`[LID Mapper] Erro ao atualizar no banco:`, e.message);
+                }
             }
         }
     });
@@ -108,28 +132,29 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
 
         let from = msg.key.remoteJid;
 
-        // Se vier como LID, tenta resolver para JID
+        // ✅ CORRIGIDO: busca com o LID completo, igual ao que foi salvo no contacts.upsert
         if (from && from.endsWith('@lid')) {
-            const jidMapeado = await redis.get(`lid:${from}`);
+            const chave = `lid:${from}`; // ex: "lid:67319736848503@lid"
+            const jidMapeado = await redis.get(chave);
+
             if (jidMapeado) {
+                console.log(`[LID Mapper] ✅ Resolvido: ${from} -> ${jidMapeado}`);
+                msg.key.remoteJid = jidMapeado; // atualiza o objeto msg também
                 from = jidMapeado;
-                console.log(`[LID Mapper] Resolvido LID: ${msg.key.remoteJid} -> JID: ${from}`);
             } else {
-                console.warn(`[LID Mapper] LID sem mapeamento ainda: ${from}. Ignorando mensagem.`);
-                return; // Ou enfileira para retry, dependendo da sua lógica
+                console.warn(`[LID Mapper] ⚠️ LID sem mapeamento: ${from}. Ignorando.`);
+                return;
             }
         }
+
         if (from.endsWith('@g.us') || from === 'status@broadcast') return;
 
-        // 🛡️ NOVO SANDBOX INTELIGENTE
         const envLista = process.env.NUMEROS_PERMITIDOS || "";
         const numerosPermitidos = envLista.split(',').map(n => n.trim().replace(/\D/g, '')).filter(n => n.length > 0);
-        const fromLimpo = from.replace(/\D/g, ''); // Tira o @lid e @s.whatsapp.net para comparar
+        const fromLimpo = from.replace(/\D/g, '');
 
-        // Se a trava estiver ativada no .env e não for mensagem do próprio bot
         if (numerosPermitidos.length > 0 && !msg.key.fromMe) {
             const numeroAutorizado = numerosPermitidos.some(numEnv => fromLimpo.includes(numEnv));
-
             if (!numeroAutorizado) {
                 console.log(`[Sandbox] Ignorando mensagem não autorizada do número: ${from}`);
                 return;
@@ -137,10 +162,8 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
         }
 
         const texto = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || "").toLowerCase();
-
         if (msg.key.fromMe && texto !== '!disparar' && texto !== '/relatorio') return;
 
-        // Se chegou aqui, passou pelo Sandbox! Manda para o fluxo.js
         await onMessage(clienteId, sock, msg);
     });
 
