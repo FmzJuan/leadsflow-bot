@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const fs = require('fs');
 const cron = require('node-cron');
+require('dotenv').config();
 
 // Configurações e Middlewares
 const sessionConfig = require('./config/session');
@@ -30,6 +31,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(sessionConfig);
 app.use(tenantMiddleware);
 app.get('/health', (req, res) => res.status(200).send('OK'));
+
 // --- ROTAS MODULARIZADAS ---
 const authRoutes = require('./routes/auth');
 const dashboardRoutes = require('./routes/dashboard');
@@ -44,7 +46,11 @@ io.on('connection', (socket) => {
     console.log(`📊 Dashboard conectada ao servidor via Socket.io`);
 });
 
-// --- FUNÇÃO PRINCIPAL DO BOT ---
+
+
+
+// -------------------------------------------------------------
+
 // --- FUNÇÃO PRINCIPAL DO BOT ---
 async function start() {
     console.log("🚀 LeadsFlow SaaS: Buscando clientes ativos...");
@@ -84,30 +90,51 @@ async function start() {
     }
 }
 
-// --- INICIALIZAÇÃO ---
+// --- alterei aqui para teste local INICIALIZAÇÃO ---
 if (process.env.NODE_ENV !== 'test') {
     server.listen(3000, '0.0.0.0', () => {
         console.log("🚀 LeadsFlow SaaS Online!");
-        start(); 
-    });
-
-    // Cron Job Multi-tenant
-    cron.schedule('0 18 * * *', async () => {
-        console.log("⏰ Iniciando agendamento diário na Fila BullMQ...");
-        try {
-            const result = await query("SELECT id, nome_oficina, subdominio FROM clientes_config WHERE status_assinatura = 'ativo'");
-            for (const cliente of result.rows) {
-                const credenciais = {
-                    chave: process.env.ERP_CHAVE,
-                    usuario: process.env.ERP_USER,
-                    senha: process.env.ERP_PASS
-                };
-                await adicionarAoFluxoRPA(cliente.id, credenciais); 
-            }
-        } catch (err) {
-            console.error("❌ Erro no Cron Job:", err);
+        
+        // ✅ Não inicia o WhatsApp em desenvolvimento
+        if (process.env.DISABLE_WHATSAPP !== 'true') {
+            start();
+        } else {
+            console.log("🛠️ [DEV] Motor WhatsApp desativado.");
         }
-    }, { timezone: "America/Sao_Paulo" });
+    });
+    // Cron Job Multi-tenant
+    // --- CRON JOB MULTI-TENANT (Ajustado para Produção) ---
+cron.schedule('* * * * *', async () => {
+    console.log("⏰ Iniciando agendamento diário na Fila BullMQ...");
+    try {
+        // ✅ Buscamos as credenciais específicas de cada cliente no banco
+        const result = await query(`
+            SELECT id, nome_oficina, subdominio, erp_chave, erp_user, erp_pass 
+            FROM clientes_config 
+            WHERE status_assinatura = 'ativo'
+        `);
+
+        for (const cliente of result.rows) {
+            // ✅ Montamos as credenciais dinâmicas do banco de dados
+            const credenciais = {
+                chave: cliente.erp_chave,
+                usuario: cliente.erp_user,
+                senha: cliente.erp_pass
+            };
+
+            // Se o cliente não tiver credenciais configuradas, avisamos no log e pulamos
+            if (!credenciais.chave || !credenciais.usuario || !credenciais.senha) {
+                console.warn(`⚠️ [Sincronização] Cliente ${cliente.nome_oficina} ignorado: Credenciais ERP ausentes no banco.`);
+                continue;
+            }
+
+            console.log(`[Queue] Job de sincronização agendado para o Cliente: ${cliente.nome_oficina}`);
+            await adicionarAoFluxoRPA(cliente.id, credenciais); 
+        }
+    } catch (err) {
+        console.error("❌ Erro no Cron Job de Sincronização:", err);
+    }
+}, { timezone: "America/Sao_Paulo" });
 }
 
 module.exports = { app, server, io, start };

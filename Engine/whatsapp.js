@@ -88,19 +88,28 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
         if (!msg.message) return; 
 
         const from = msg.key.remoteJid;
-        if (from.endsWith('@g.us')) return;
+        if (from.endsWith('@g.us') || from === 'status@broadcast') return;
 
-        const numeroPermitido = (process.env.NUMEROS_PERMITIDOS || '').split(',');
-        
-        if (!from.includes(numeroPermitido) && !msg.key.fromMe) {
-            console.log(`[Sandbox] Ignorando mensagem do número: ${from}`);
-            return;
+        // 🛡️ NOVO SANDBOX INTELIGENTE
+        const envLista = process.env.NUMEROS_PERMITIDOS || "";
+        const numerosPermitidos = envLista.split(',').map(n => n.trim().replace(/\D/g, '')).filter(n => n.length > 0);
+        const fromLimpo = from.replace(/\D/g, ''); // Tira o @lid e @s.whatsapp.net para comparar
+
+        // Se a trava estiver ativada no .env e não for mensagem do próprio bot
+        if (numerosPermitidos.length > 0 && !msg.key.fromMe) {
+            const numeroAutorizado = numerosPermitidos.some(numEnv => fromLimpo.includes(numEnv));
+
+            if (!numeroAutorizado) {
+                console.log(`[Sandbox] Ignorando mensagem não autorizada do número: ${from}`);
+                return;
+            }
         }
 
         const texto = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || "").toLowerCase();
 
         if (msg.key.fromMe && texto !== '!disparar' && texto !== '/relatorio') return;
 
+        // Se chegou aqui, passou pelo Sandbox! Manda para o fluxo.js
         await onMessage(clienteId, sock, msg);
     });
 

@@ -6,15 +6,15 @@ function iniciarCronJobs() {
     console.log("⏰ Motor de Agendamentos Iniciado. Varredura programada para as 08:00 AM.");
 
     // ✅ Roda todos os dias às 08:00 no fuso de São Paulo
-cron.schedule('0 8 * * *', async () => {
+cron.schedule('* * * * *', async () => {
             try {
             // ✅ Ajuste cirúrgico do Fuso Horário na Query
             const result = await query(`
-                SELECT id, cliente_id, nome, celular, veiculo, tipo_envio 
-                FROM leads 
-                WHERE data_agendada <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date 
-                AND status_envio = 'pendente'
-            `);
+    SELECT id, cliente_id, nome, celular, veiculo, tipo_envio -- ✅ Adicionado veiculo
+    FROM leads 
+    WHERE data_agendada <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date 
+    AND status_envio = 'pendente'
+`);
 
             const leadsDoDia = result.rows;
 
@@ -27,8 +27,9 @@ cron.schedule('0 8 * * *', async () => {
                     telefone: lead.celular,
                     nome: lead.nome,
                     tipo_envio: lead.tipo_envio,
-                    id_banco: lead.id
-                });
+                     id_banco: lead.id,
+                    veiculo: lead.veiculo //  Agora o dado do carro entra na fila
+    });
 
                 await query(`
                     UPDATE leads 

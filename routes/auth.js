@@ -5,8 +5,21 @@ const bcrypt = require('bcrypt');
 router.get('/login', (req, res) => res.render('login'));
 
 router.post('/login', async (req, res) => {
+    console.log('NODE_ENV:', process.env.NODE_ENV);
+
     const username = (req.body.username || req.body.email || '').toLowerCase().trim();
     const password = (req.body.password || req.body.senha || '').trim();
+
+    // ✅ MODO DESENVOLVIMENTO — bypass total de autenticação
+    if (process.env.NODE_ENV === 'development') {
+        console.log(`🛠️ [DEV] Login automático para: ${username || 'dev'}`);
+        req.session.logged = true;
+        req.session.clienteId = process.env.DEV_CLIENT_ID || null;
+        return req.session.save((err) => {
+            if (err) return res.status(500).send("Erro ao salvar sessão.");
+            return res.redirect('/');
+        });
+    }
 
     try {
         let usuarioValido = false;
@@ -25,7 +38,6 @@ router.post('/login', async (req, res) => {
             }
         }
 
-        // Login Admin Global
         if (!usuarioValido && username === process.env.PANEL_USER && password === process.env.PANEL_PASS) {
             req.session.logged = true;
             usuarioValido = true;

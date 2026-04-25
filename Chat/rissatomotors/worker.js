@@ -1,14 +1,15 @@
+// Chat/RissatoMotors/worker.js
+
 const { Worker } = require('bullmq');
 const connection = require('../../DataBase/redis'); 
-const { mensagens24h, mensagens6meses } = require('./mensagens'); 
+const { mensagens24h, mensagens5meses } = require('./mensagens'); 
 const { salvarNoSheets } = require('../../Functions/googleSheets');
-const { query } = require('../../DataBase/conection'); // ✅ Importado para dar baixa no banco
+const { query } = require('../../DataBase/conection'); 
 
 async function enviarMensagemHumana(sock, jid, texto) {
-    // ✅ TRAVA DE SEGURANÇA: DRY-RUN
     if (process.env.DRY_RUN === 'true') {
-        console.log(`\x1b[33m[DRY-RUN] Simulação ativada. Mensagem que seria enviada para ${jid}: \x1b[0m\n"${texto}"`);
-        return; // Retorna antes de chamar a API do WhatsApp
+        console.log(`\x1b[33m[DRY-RUN] Simulação ativada. Mensagem que seria enviada para ${jid}: \x1b[0m\n"${texto}"\n`);
+        return; 
     }
 
     try {
@@ -21,51 +22,104 @@ async function enviarMensagemHumana(sock, jid, texto) {
         await sock.sendPresenceUpdate('paused', jid);
     } catch (error) {
         console.error(`[Worker] Erro ao enviar mensagem humana para ${jid}:`, error);
-        throw error; // Lança o erro para o BullMQ tentar novamente ou marcar como falha
+        throw error; 
     }
 }
 
 function iniciarWorker(sock) {
     const worker = new Worker('pos-venda-rissato', async job => {
-        // ✅ Pegamos o idBanco que passamos lá no scheduler
-        const { telefone, nome, tipo, idBanco } = job.data; 
-        const jid = `${telefone}@s.whatsapp.net`;
-        
-        const arraySorteio = (tipo === '24h' || tipo === 'pos_venda_24h') ? mensagens24h : mensagens6meses;
-        const textoSorteado = arraySorteio[Math.floor(Math.random() * arraySorteio.length)];
-        const textoFinal = textoSorteado.replace('{nome}', nome.split(' ')[0]);
+        // ✅ Extrai veículo e placa do job.data
+        const { telefone, nome, tipo, idBanco, veiculo, placa } = job.data; 
+        const primeiroNome = nome.split(' ')[0];
 
-        console.log(`[Worker] Processando disparo para: ${nome} (${tipo})`);
-        
-        await enviarMensagemHumana(sock, jid, textoFinal);
+        const numeroClienteLimpo = telefone.replace(/\D/g, ''); 
 
-        const dadosParaPlanilha = [
-            new Date().toLocaleString('pt-BR'), 
-            nome, 
-            telefone, 
-            `Pós-Venda ${tipo}`, 
-            'Mensagem Enviada'
-        ];
-        
-        await salvarNoSheets(dadosParaPlanilha, 1);
+        let jid = telefone;
+        if (!jid.includes('@')) {
+            jid = `${numeroClienteLimpo}@s.whatsapp.net`;
+        }
 
-        // ✅ SEGUNDA PARTE DA BAIXA: Atualizar o PostgreSQL para 'enviado'
-        if (idBanco) {
-            try {
-                await query(
-                    "UPDATE leads SET status_envio = 'enviado', atualizado_em = CURRENT_TIMESTAMP WHERE id = $1",
-                    [idBanco]
-                );
-                console.log(`[Worker] Banco de dados atualizado: Lead ${idBanco} marcado como enviado.`);
-            } catch (dbErr) {
-                console.error(`[Worker] Erro ao atualizar banco para o lead ${idBanco}:`, dbErr);
+        const envLista = process.env.NUMEROS_PERMITIDOS || "";
+        const numerosPermitidos = envLista.split(',').map(n => n.trim().replace(/\D/g, '')).filter(n => n.length > 0);
+
+        if (numerosPermitidos.length > 0) {
+            const numeroAutorizado = numerosPermitidos.some(numeroEnv => 
+                numeroClienteLimpo.includes(numeroEnv) || numeroEnv.includes(numeroClienteLimpo)
+            );
+
+            if (!numeroAutorizado) {
+                console.log(`[TESTE] Bloqueado: ${telefone} não bate com a lista do .env.`);
+                return; 
+            }
+        }
+
+        console.log(`[Worker] Processando disparo liberado para: ${nome} (${tipo}) JID: ${jid}`);
+
+        if (tipo === '24h' || tipo === 'pos_venda_24h') {
+            
+            const arraySorteio = mensagens24h; 
+            const textoSorteado = arraySorteio[Math.floor(Math.random() * arraySorteio.length)];
+            
+            // ✅ AQUI ESTÁ A CORREÇÃO: Substitui o carro e a placa
+            const textoFinal = textoSorteado
+                .replace('{nome}', primeiroNome)
+                .replace('{model_car}', veiculo || 'seu veículo') 
+                .replace('{car_plate}', placa || 'não informada');
+
+            await enviarMensagemHumana(sock, jid, textoFinal);
+
+            const dadosParaPlanilha = [
+                new Date().toLocaleString('pt-BR'), nome, telefone, `Pós-Venda ${tipo}`, 'Aguardando Avaliação'
+            ];
+            await salvarNoSheets(dadosParaPlanilha, 1);
+
+            if (idBanco) {
+                try {
+                    await query(
+                        "UPDATE leads SET status_envio = 'enviado', fase_bot = 'aguardando_nps', atualizado_em = CURRENT_TIMESTAMP WHERE id = $1",
+                        [idBanco]
+                    );
+                    console.log(`[Worker] Banco de dados: Lead ${idBanco} marcado como 'aguardando_nps'.`);
+                } catch (dbErr) {
+                    console.error(`[Worker] Erro ao atualizar NPS no banco para lead ${idBanco}:`, dbErr);
+                }
+            }
+
+        } else {
+            
+            const arraySorteio = mensagens5meses; 
+            const textoSorteado = arraySorteio[Math.floor(Math.random() * arraySorteio.length)];
+            
+            // ✅ AQUI TAMBÉM: Substitui o carro e a placa para o fluxo de 5 meses
+            const textoFinal = textoSorteado
+                .replace('{nome}', primeiroNome)
+                .replace('{model_car}', veiculo || 'seu veículo') 
+                .replace('{car_plate}', placa || 'não informada');
+
+            await enviarMensagemHumana(sock, jid, textoFinal);
+
+            const dadosParaPlanilha = [
+                new Date().toLocaleString('pt-BR'), nome, telefone, `Pós-Venda ${tipo}`, 'Mensagem Enviada'
+            ];
+            await salvarNoSheets(dadosParaPlanilha, 1);
+
+            if (idBanco) {
+                try {
+                    await query(
+                        "UPDATE leads SET status_envio = 'enviado', atualizado_em = CURRENT_TIMESTAMP WHERE id = $1",
+                        [idBanco]
+                    );
+                    console.log(`[Worker] Banco de dados: Lead ${idBanco} de retorno marcado como enviado.`);
+                } catch (dbErr) {
+                    console.error(`[Worker] Erro ao atualizar Retorno no banco para lead ${idBanco}:`, dbErr);
+                }
             }
         }
 
     }, { connection });
 
     worker.on('completed', job => {
-        console.log(`✅ [Worker] Job ${job.id} (Envio para ${job.data.nome}) concluído!`);
+        console.log(`✅ [Worker] Job ${job.id} concluído com sucesso!`);
     });
 
     worker.on('failed', (job, err) => {

@@ -9,11 +9,21 @@ const sessionConfig = session({
     saveUninitialized: false,
     proxy: true,
     cookie: {
+    domain: process.env.NODE_ENV === 'development' ? undefined : '.ledsflow.cloud',
+    secure: process.env.NODE_ENV !== 'development',
+    sameSite: 'lax',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000
+}
+    /*//mudar para true quando subir para a vps
+    cookie: {
         domain: '.ledsflow.cloud',
+         
         secure: true,
         sameSite: 'lax',
+        httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000
-    }
+    }*/
 });
 
 module.exports = sessionConfig;
