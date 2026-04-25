@@ -8,6 +8,7 @@ const qrcode = require("qrcode-terminal");
 const pino = require("pino");
 const path = require("path");
 const fs = require("fs"); 
+const redis = require("../DataBase/redis"); // Importa a conexão Redis 
 
 const sessions = new Map();
 const workersAtivos = new Set(); // ✅ Evita ativar o worker mais de uma vez
@@ -81,13 +82,43 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
 
     sock.ev.on('creds.update', saveCreds);
 
+        sock.ev.on('contacts.upsert', async (contacts) => {
+        for (const contact of contacts) {
+            if (contact.lid && contact.id) {
+                await redis.set(`lid:${contact.lid}`, contact.id);
+                console.log(`[LID Mapper] Mapeado LID: ${contact.lid} -> JID: ${contact.id}`);
+            }
+        }
+    });
+
+    sock.ev.on('contacts.update', async (contacts) => {
+        for (const contact of contacts) {
+            if (contact.lid && contact.id) {
+                await redis.set(`lid:${contact.lid}`, contact.id);
+                console.log(`[LID Mapper] Atualizado LID: ${contact.lid} -> JID: ${contact.id}`);
+            }
+        }
+    });
+
     sock.ev.on('messages.upsert', async (m) => {
         if (m.type !== 'notify') return;
 
         const msg = m.messages[0];
         if (!msg.message) return; 
 
-        const from = msg.key.remoteJid;
+        let from = msg.key.remoteJid;
+
+        // Se vier como LID, tenta resolver para JID
+        if (from && from.endsWith('@lid')) {
+            const jidMapeado = await redis.get(`lid:${from}`);
+            if (jidMapeado) {
+                from = jidMapeado;
+                console.log(`[LID Mapper] Resolvido LID: ${msg.key.remoteJid} -> JID: ${from}`);
+            } else {
+                console.warn(`[LID Mapper] LID sem mapeamento ainda: ${from}. Ignorando mensagem.`);
+                return; // Ou enfileira para retry, dependendo da sua lógica
+            }
+        }
         if (from.endsWith('@g.us') || from === 'status@broadcast') return;
 
         // 🛡️ NOVO SANDBOX INTELIGENTE

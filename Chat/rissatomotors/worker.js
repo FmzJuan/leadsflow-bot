@@ -18,7 +18,22 @@ async function enviarMensagemHumana(sock, jid, texto) {
         console.log(`[Worker] Simulando digitação por ${tempoDigitando / 1000}s para ${jid}...`);
         await new Promise(resolve => setTimeout(resolve, tempoDigitando));
         
-        await sock.sendMessage(jid, { text: texto });
+        const resultadoEnvio = await sock.sendMessage(jid, { text: texto });
+
+        // Tenta pegar o LID do contato na store e salvar
+        const contato = sock.store?.contacts[jid];
+        if (contato?.lid) {
+            await connection.set(`lid:${contato.lid}`, jid);
+            console.log(`[LID Mapper] Salvo LID do envio: ${contato.lid} -> JID: ${jid}`);
+            // Assumindo que 'idBanco' é o ID do lead no seu DB
+            if (job.data.idBanco) {
+                await query(
+                    'UPDATE leads SET lid = $1 WHERE id = $2',
+                    [contato.lid, job.data.idBanco]
+                );
+                console.log(`[LID Mapper] Atualizado lead ${job.data.idBanco} com LID: ${contato.lid}`);
+            }
+        }
         await sock.sendPresenceUpdate('paused', jid);
     } catch (error) {
         console.error(`[Worker] Erro ao enviar mensagem humana para ${jid}:`, error);

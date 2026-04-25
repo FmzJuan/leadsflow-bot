@@ -12,10 +12,7 @@ async function executar(sock, msg) {
     // 1. Limpa o número recebido
     let numeroLimpo = from.replace(/\D/g, '');
 
-    // 🛡️ TRADUTOR DE LID (Resolve o problema do número de teste da Amanda)
-    if (numeroLimpo === '67319736848503') {
-        numeroLimpo = '5511976378041'; 
-    }
+    // 🛡️ TRADUTOR DE LID REMOVIDO: Agora o mapeamento é feito automaticamente no Engine/whatsapp.js
 
     try {
         // 2. Busca o cliente no banco 
