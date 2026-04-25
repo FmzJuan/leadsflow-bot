@@ -4,7 +4,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const fs = require('fs');
 const cron = require('node-cron');
-//require('dotenv').config();
+require('dotenv').config();
 
 // Configurações e Middlewares
 const sessionConfig = require('./config/session');
