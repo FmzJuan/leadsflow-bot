@@ -1,16 +1,14 @@
+// index.js
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const fs = require('fs');
 const cron = require('node-cron');
-//ac require('dotenv').config();
 
-// Configurações e Middlewares
 const sessionConfig = require('./config/session');
 const tenantMiddleware = require('./middlewares/tenant');
 
-// Importações de Motores e Funções
 const { connectToWhatsApp, getClientSocket } = require('./Engine/whatsapp'); 
 const { query } = require('./DataBase/conection');
 const { adicionarAoFluxoRPA } = require('./queues/rpaqueue');
@@ -20,13 +18,15 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Exportamos o 'io' para o whatsapp.js conseguir usar
 module.exports = { io };
 
 // --- CONFIGURAÇÕES GLOBAIS ---
 app.set('view engine', 'ejs');
 app.set('trust proxy', 1);
-app.use(express.static(path.join(__dirname, 'public')));app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// ✅ CORRIGIDO: cada middleware em sua própria linha, sem concatenação
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(sessionConfig);
 app.use(tenantMiddleware);
@@ -46,11 +46,6 @@ io.on('connection', (socket) => {
     console.log(`📊 Dashboard conectada ao servidor via Socket.io`);
 });
 
-
-
-
-// -------------------------------------------------------------
-
 // --- FUNÇÃO PRINCIPAL DO BOT ---
 async function start() {
     console.log("🚀 LeadsFlow SaaS: Buscando clientes ativos...");
@@ -67,7 +62,6 @@ async function start() {
                 iniciarWorker = require(workerPath).iniciarWorker;
             }
 
-            // ✅ INICIA O CRONJOB DO CLIENTE
             const cronPath = path.join(__dirname, 'Chat', cliente.subdominio, 'cron.js');
             if (fs.existsSync(cronPath)) {
                 const cronCliente = require(cronPath);
@@ -90,51 +84,45 @@ async function start() {
     }
 }
 
-// --- alterei aqui para teste local INICIALIZAÇÃO ---
 if (process.env.NODE_ENV !== 'test') {
     server.listen(3000, '0.0.0.0', () => {
         console.log("🚀 LeadsFlow SaaS Online!");
         
-        // ✅ Não inicia o WhatsApp em desenvolvimento
         if (process.env.DISABLE_WHATSAPP !== 'true') {
             start();
         } else {
             console.log("🛠️ [DEV] Motor WhatsApp desativado.");
         }
     });
-    // Cron Job Multi-tenant
-    // --- CRON JOB MULTI-TENANT (Ajustado para Produção) ---
-cron.schedule('0 8 * * *', async() => {
-    console.log("⏰ Iniciando agendamento diário na Fila BullMQ...");
-    try {
-        // ✅ Buscamos as credenciais específicas de cada cliente no banco
-        const result = await query(`
-            SELECT id, nome_oficina, subdominio, erp_chave, erp_user, erp_pass 
-            FROM clientes_config 
-            WHERE status_assinatura = 'ativo'
-        `);
 
-        for (const cliente of result.rows) {
-            // ✅ Montamos as credenciais dinâmicas do banco de dados
-            const credenciais = {
-                chave: cliente.erp_chave,
-                usuario: cliente.erp_user,
-                senha: cliente.erp_pass
-            };
+    cron.schedule('0 8 * * *', async () => {
+        console.log("⏰ Iniciando agendamento diário na Fila BullMQ...");
+        try {
+            const result = await query(`
+                SELECT id, nome_oficina, subdominio, erp_chave, erp_user, erp_pass 
+                FROM clientes_config 
+                WHERE status_assinatura = 'ativo'
+            `);
 
-            // Se o cliente não tiver credenciais configuradas, avisamos no log e pulamos
-            if (!credenciais.chave || !credenciais.usuario || !credenciais.senha) {
-                console.warn(`⚠️ [Sincronização] Cliente ${cliente.nome_oficina} ignorado: Credenciais ERP ausentes no banco.`);
-                continue;
+            for (const cliente of result.rows) {
+                const credenciais = {
+                    chave: cliente.erp_chave,
+                    usuario: cliente.erp_user,
+                    senha: cliente.erp_pass
+                };
+
+                if (!credenciais.chave || !credenciais.usuario || !credenciais.senha) {
+                    console.warn(`⚠️ [Sincronização] Cliente ${cliente.nome_oficina} ignorado: Credenciais ERP ausentes.`);
+                    continue;
+                }
+
+                console.log(`[Queue] Job de sincronização agendado para: ${cliente.nome_oficina}`);
+                await adicionarAoFluxoRPA(cliente.id, credenciais); 
             }
-
-            console.log(`[Queue] Job de sincronização agendado para o Cliente: ${cliente.nome_oficina}`);
-            await adicionarAoFluxoRPA(cliente.id, credenciais); 
+        } catch (err) {
+            console.error("❌ Erro no Cron Job de Sincronização:", err);
         }
-    } catch (err) {
-        console.error("❌ Erro no Cron Job de Sincronização:", err);
-    }
-}, { timezone: "America/Sao_Paulo" });
+    }, { timezone: "America/Sao_Paulo" });
 }
 
 module.exports = { app, server, io, start };

@@ -1,3 +1,4 @@
+// routes/auth.js
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
@@ -7,8 +8,8 @@ router.get('/login', (req, res) => res.render('login'));
 router.post('/login', async (req, res) => {
     console.log('NODE_ENV:', process.env.NODE_ENV);
 
-    const username = (req.body.username || req.body.email || '').toLowerCase().trim();
-    const password = (req.body.password || req.body.senha || '').trim();
+    const username = (req.body?.username || req.body?.email || '').toLowerCase().trim();
+    const password = (req.body?.password || req.body?.senha || '').trim();
 
     // ✅ MODO DESENVOLVIMENTO — bypass total de autenticação
     if (process.env.NODE_ENV === 'development') {

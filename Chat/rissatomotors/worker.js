@@ -6,7 +6,8 @@ const { mensagens24h, mensagens5meses } = require('./mensagens');
 const { salvarNoSheets } = require('../../Functions/googleSheets');
 const { query } = require('../../DataBase/conection'); 
 
-async function enviarMensagemHumana(sock, jid, texto) {
+// ✅ CORRIGIDO: recebe 'job' como parâmetro para ter acesso ao idBanco
+async function enviarMensagemHumana(sock, jid, texto, job) {
     if (process.env.DRY_RUN === 'true') {
         console.log(`\x1b[33m[DRY-RUN] Simulação ativada. Mensagem que seria enviada para ${jid}: \x1b[0m\n"${texto}"\n`);
         return; 
@@ -18,22 +19,23 @@ async function enviarMensagemHumana(sock, jid, texto) {
         console.log(`[Worker] Simulando digitação por ${tempoDigitando / 1000}s para ${jid}...`);
         await new Promise(resolve => setTimeout(resolve, tempoDigitando));
         
-        const resultadoEnvio = await sock.sendMessage(jid, { text: texto });
+        await sock.sendMessage(jid, { text: texto });
 
-        // Tenta pegar o LID do contato na store e salvar
-        const contato = sock.store?.contacts[jid];
+        // ✅ Tenta salvar o LID no Redis e no banco após o envio
+        const contato = sock.store?.contacts?.[jid];
         if (contato?.lid) {
             await connection.set(`lid:${contato.lid}`, jid);
-            console.log(`[LID Mapper] Salvo LID do envio: ${contato.lid} -> JID: ${jid}`);
-            // Assumindo que 'idBanco' é o ID do lead no seu DB
-            if (job.data.idBanco) {
+            console.log(`[LID Mapper] Salvo no Redis após envio: ${contato.lid} -> ${jid}`);
+
+            if (job?.data?.idBanco) {
                 await query(
                     'UPDATE leads SET lid = $1 WHERE id = $2',
                     [contato.lid, job.data.idBanco]
                 );
-                console.log(`[LID Mapper] Atualizado lead ${job.data.idBanco} com LID: ${contato.lid}`);
+                console.log(`[LID Mapper] Lead ${job.data.idBanco} atualizado com LID no banco.`);
             }
         }
+
         await sock.sendPresenceUpdate('paused', jid);
     } catch (error) {
         console.error(`[Worker] Erro ao enviar mensagem humana para ${jid}:`, error);
@@ -43,10 +45,8 @@ async function enviarMensagemHumana(sock, jid, texto) {
 
 function iniciarWorker(sock) {
     const worker = new Worker('pos-venda-rissato', async job => {
-        // ✅ Extrai veículo e placa do job.data
         const { telefone, nome, tipo, idBanco, veiculo, placa } = job.data; 
         const primeiroNome = nome.split(' ')[0];
-
         const numeroClienteLimpo = telefone.replace(/\D/g, ''); 
 
         let jid = telefone;
@@ -61,7 +61,6 @@ function iniciarWorker(sock) {
             const numeroAutorizado = numerosPermitidos.some(numeroEnv => 
                 numeroClienteLimpo.includes(numeroEnv) || numeroEnv.includes(numeroClienteLimpo)
             );
-
             if (!numeroAutorizado) {
                 console.log(`[TESTE] Bloqueado: ${telefone} não bate com a lista do .env.`);
                 return; 
@@ -71,17 +70,15 @@ function iniciarWorker(sock) {
         console.log(`[Worker] Processando disparo liberado para: ${nome} (${tipo}) JID: ${jid}`);
 
         if (tipo === '24h' || tipo === 'pos_venda_24h') {
-            
             const arraySorteio = mensagens24h; 
             const textoSorteado = arraySorteio[Math.floor(Math.random() * arraySorteio.length)];
-            
-            // ✅ AQUI ESTÁ A CORREÇÃO: Substitui o carro e a placa
             const textoFinal = textoSorteado
                 .replace('{nome}', primeiroNome)
                 .replace('{model_car}', veiculo || 'seu veículo') 
                 .replace('{car_plate}', placa || 'não informada');
 
-            await enviarMensagemHumana(sock, jid, textoFinal);
+            // ✅ CORRIGIDO: passa 'job' para a função ter acesso ao idBanco
+            await enviarMensagemHumana(sock, jid, textoFinal, job);
 
             const dadosParaPlanilha = [
                 new Date().toLocaleString('pt-BR'), nome, telefone, `Pós-Venda ${tipo}`, 'Aguardando Avaliação'
@@ -101,17 +98,15 @@ function iniciarWorker(sock) {
             }
 
         } else {
-            
             const arraySorteio = mensagens5meses; 
             const textoSorteado = arraySorteio[Math.floor(Math.random() * arraySorteio.length)];
-            
-            // ✅ AQUI TAMBÉM: Substitui o carro e a placa para o fluxo de 5 meses
             const textoFinal = textoSorteado
                 .replace('{nome}', primeiroNome)
                 .replace('{model_car}', veiculo || 'seu veículo') 
                 .replace('{car_plate}', placa || 'não informada');
 
-            await enviarMensagemHumana(sock, jid, textoFinal);
+            // ✅ CORRIGIDO: passa 'job' para a função
+            await enviarMensagemHumana(sock, jid, textoFinal, job);
 
             const dadosParaPlanilha = [
                 new Date().toLocaleString('pt-BR'), nome, telefone, `Pós-Venda ${tipo}`, 'Mensagem Enviada'
