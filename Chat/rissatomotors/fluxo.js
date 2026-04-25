@@ -17,11 +17,13 @@ async function executar(sock, msg) {
     try {
         // 2. Busca o cliente no banco 
         const result = await query(`
-            SELECT id, nome, fase_bot 
-            FROM leads 
-            WHERE celular LIKE $1 OR celular = $2
-            LIMIT 1
-        `, [`%${numeroLimpo}%`, from.split('@')[0]]);
+    SELECT id, nome, fase_bot 
+    FROM leads 
+    WHERE celular LIKE $1 
+       OR celular = $2 
+       OR lid = $3
+    LIMIT 1
+`, [`%${numeroLimpo}%`, from.split('@')[0], from]);
 
         const lead = result.rows[0];
 
