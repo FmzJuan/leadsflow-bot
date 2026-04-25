@@ -104,7 +104,7 @@ if (process.env.NODE_ENV !== 'test') {
     });
     // Cron Job Multi-tenant
     // --- CRON JOB MULTI-TENANT (Ajustado para Produção) ---
-cron.schedule('* * * * *', async () => {
+cron.schedule('0 8 * * *', async() => {
     console.log("⏰ Iniciando agendamento diário na Fila BullMQ...");
     try {
         // ✅ Buscamos as credenciais específicas de cada cliente no banco
