@@ -6,7 +6,7 @@ function iniciarCronJobs() {
     console.log("⏰ Motor de Agendamentos Iniciado. Varredura programada para as 08:00 AM.");
 
     // ✅ Roda todos os dias às 08:00 no fuso de São Paulo
-cron.schedule('0 8 * * *', async() => {
+cron.schedule('* * * * *', async() => {
             try {
             // ✅ Ajuste cirúrgico do Fuso Horário na Query
             const result = await query(`
