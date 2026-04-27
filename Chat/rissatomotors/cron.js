@@ -10,11 +10,11 @@ cron.schedule('* * * * *', async() => {
             try {
             // ✅ Ajuste cirúrgico do Fuso Horário na Query
             const result = await query(`
-    SELECT id, cliente_id, nome, celular, veiculo, tipo_envio -- ✅ Adicionado veiculo
-    FROM leads 
-    WHERE data_agendada <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date 
-    AND status_envio = 'pendente'
-`);
+                SELECT id, cliente_id, nome, celular, veiculo, placa, tipo_envio 
+                FROM leads 
+                WHERE data_agendada <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date 
+                AND status_envio = 'pendente'
+            `);
 
             const leadsDoDia = result.rows;
 
@@ -28,8 +28,9 @@ cron.schedule('* * * * *', async() => {
                     nome: lead.nome,
                     tipo_envio: lead.tipo_envio,
                      id_banco: lead.id,
-                    veiculo: lead.veiculo //  Agora o dado do carro entra na fila
-    });
+                    veiculo: lead.veiculo,
+                    placa: lead.placa //  Agora o dado da placa vai para o scheduler
+                });
 
                 await query(`
                     UPDATE leads 

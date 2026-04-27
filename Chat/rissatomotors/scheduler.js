@@ -25,10 +25,10 @@ async function agendarMensagens(cliente) {
   console.log(`[Scheduler] Pós-venda agendado com delay para ${nome}.`);
 }
 
-// ✅ NOVA FUNÇÃO PARA O CRONJOB (SEM DELAY)
+//  NOVA FUNÇÃO PARA O CRONJOB (SEM DELAY)
 async function dispararMensagemImediata(lead) {
-  // ✅ Recebe o veiculo aqui
-  const { telefone, nome, tipo_envio, id_banco, veiculo } = lead;
+  //  Recebe o veiculo aqui
+ const { telefone, nome, tipo_envio, id_banco, veiculo, placa } = lead; 
   
   await posVendaQueue.add(
     tipo_envio, 
@@ -37,8 +37,8 @@ async function dispararMensagemImediata(lead) {
         nome, 
         tipo: tipo_envio, 
         idBanco: id_banco,
-        veiculo: veiculo, // ✅ Enviando para o Worker
-        placa: veiculo    // ✅ Enviando como placa também (o Worker limpa depois se precisar)
+        veiculo: veiculo, 
+        placa: placa  //  Enviando como placa também (o Worker limpa depois se precisar)
     },
     { removeOnComplete: true } 
   );
