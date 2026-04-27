@@ -38,18 +38,30 @@ async function processarLegado() {
     
     let primeiraLinhaOS = true;
     let importados = 0;
+    let indexPlaca = 6; 
 
     for await (const linha of rlOS) {
-        if (primeiraLinhaOS) { primeiraLinhaOS = false; continue; }
-        
         const colunas = linha.split(';');
+
+        // 🧠 O CÉREBRO: Lê o cabeçalho e descobre o número exato da coluna da Placa
+        if (primeiraLinhaOS) { 
+            primeiraLinhaOS = false; 
+            const posicaoEncontrada = colunas.findIndex(col => col.trim().toUpperCase() === 'PLACA');
+            if (posicaoEncontrada !== -1) {
+                indexPlaca = posicaoEncontrada;
+                console.log(`🔍 [Inteligência] Coluna PLACA encontrada na posição: ${indexPlaca}`);
+            } else {
+                console.log(`⚠️ [Aviso] Coluna PLACA não encontrada no cabeçalho. Tentando posição 6.`);
+            }
+            continue; 
+        }
+        
         const clienteERP = colunas.at(1)?.trim(); 
         const veiculo = colunas.at(5)?.trim();
-        const placa = colunas.at(6)?.trim() || 'Não informada';    
+        const placa = colunas.at(indexPlaca)?.trim() || 'Não informada';    // 👈 Agora usa a posição automática!
         const dataSaidaStr = colunas.at(19)?.trim(); 
 
         if (!clienteERP || !dataSaidaStr) continue;
-
         // Pega só o número antes do traço
         const idClienteOS = clienteERP.split('-').at(0)?.trim();
         const dadosDoCliente = mapaClientes.get(idClienteOS);
