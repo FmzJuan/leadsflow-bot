@@ -44,7 +44,8 @@ async function processarLegado() {
         
         const colunas = linha.split(';');
         const clienteERP = colunas.at(1)?.trim(); 
-        const veiculo = colunas.at(5)?.trim();    
+        const veiculo = colunas.at(5)?.trim();
+        const placa = colunas.at(6)?.trim() || 'Não informada';    
         const dataSaidaStr = colunas.at(19)?.trim(); 
 
         if (!clienteERP || !dataSaidaStr) continue;
@@ -61,13 +62,13 @@ async function processarLegado() {
         if (partesData.length !== 3) continue;
         const dataZero = new Date(`${partesData.at(2)}-${partesData.at(1)}-${partesData.at(0)}T12:00:00Z`);
         
-        // Calcula data de Retorno (6 meses)
-        const data6Meses = new Date(dataZero);
-        data6Meses.setDate(data6Meses.getDate() + 180);
+        // Calcula data de Retorno (5 meses = aprox 150 dias)
+        const data5Meses = new Date(dataZero);
+        data5Meses.setDate(data5Meses.getDate() + 150);
 
         // Define status
         let status = 'historico_legado';
-        if (data6Meses >= hoje) {
+        if (data5Meses >= hoje) {
             status = 'pendente'; 
         }
 
@@ -77,15 +78,16 @@ async function processarLegado() {
                 dadosDoCliente.nome, 
                 dadosDoCliente.celular, 
                 veiculo, 
+                placa,
                 dataZero, 
-                'retorno_6meses', 
-                data6Meses, 
+                'retorno_5meses', // MUDEI AQUI
+                data5Meses,       //  MUDEI AQUI
                 status
             ];
             
             await query(`
-                INSERT INTO leads (cliente_id, nome, celular, veiculo, data_saida, tipo_envio, data_agendada, status_envio)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                INSERT INTO leads (cliente_id, nome, celular, veiculo, placa, data_saida, tipo_envio, data_agendada, status_envio)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 ON CONFLICT (cliente_id, celular, tipo_envio, data_saida) DO NOTHING;
             `, parametrosDB);
             

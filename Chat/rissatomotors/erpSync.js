@@ -243,6 +243,7 @@ async function processarCSV_OS(caminhoArquivo, clienteId, mapaContatos) {
 
                 const dataSaida = linha['Saida'] || linha['SAIDA'];
                 const veiculo = `${linha['Marca'] || ''} ${linha['Modelo'] || ''}`.trim();
+                const placa = linha['Placa'] || linha['PLACA'] || '';
 
                 // Busca o telefone no dicionário
                 const telefoneEncontrado = mapaContatos.get(nomeOS);
@@ -276,8 +277,10 @@ async function salvarNoPostgres(dados, clienteId) {
     console.log(`[Database] Persistindo ${dados.length} registros no histórico e agendando Leads do Cliente ${clienteId}...`);
     
     for (const linha of dados) {
-        const [dataStr, nome, telefone, veiculoInfo] = linha;
+        // 👈 placaInfo adicionado aqui
+        const [dataStr, nome, telefone, veiculoInfo, placaInfo] = linha;
         const veiculo = veiculoInfo || 'Não informado';
+        const placa = placaInfo || 'Não informada';
 
         let dataSaida;
         if (dataStr.includes('/')) {
@@ -315,13 +318,13 @@ async function salvarNoPostgres(dados, clienteId) {
         // Insere na tabela LEADS (O escudo WHERE NOT EXISTS impede de inserir a mesma OS duplicada)
         // 4. Insere na tabela LEADS (Com os tipos de dados definidos para o PostgreSQL)
         await query(`
-            INSERT INTO leads (cliente_id, nome, celular, veiculo, data_saida, data_agendada, tipo_envio, status_envio)
-            SELECT $1::INTEGER, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR, $5::DATE, $6::TIMESTAMP, $7::VARCHAR, 'pendente'
+            INSERT INTO leads (cliente_id, nome, celular, veiculo, placa, data_saida, data_agendada, tipo_envio, status_envio)
+            SELECT $1::INTEGER, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR, $5::VARCHAR, $6::DATE, $7::TIMESTAMP, $8::VARCHAR, 'pendente'
             WHERE NOT EXISTS (
                 SELECT 1 FROM leads 
-                WHERE celular = $3::VARCHAR AND data_saida = $5::DATE AND tipo_envio = $7::VARCHAR
+                WHERE celular = $3::VARCHAR AND data_saida = $6::DATE AND tipo_envio = $8::VARCHAR
             )
-        `, [clienteId, nome, telefone, veiculo, dataSaida, dataAgendada, tipoEnvio]);
+        `, [clienteId, nome, telefone, veiculo, placa, dataSaida, dataAgendada, tipoEnvio]);
     }
 }
 
