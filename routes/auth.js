@@ -12,10 +12,10 @@ router.post('/login', async (req, res) => {
     const password = (req.body?.password || req.body?.senha || '').trim();
 
     // ✅ MODO DESENVOLVIMENTO — bypass total de autenticação
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
         console.log(`🛠️ [DEV] Login automático para: ${username || 'dev'}`);
         req.session.logged = true;
-        req.session.clienteId = process.env.DEV_CLIENT_ID || null;
+        req.session.clienteId = process.env.DEV_CLIENT_ID || 1; // Default para o primeiro cliente
         return req.session.save((err) => {
             if (err) return res.status(500).send("Erro ao salvar sessão.");
             return res.redirect('/');

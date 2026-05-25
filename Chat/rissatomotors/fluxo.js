@@ -63,7 +63,7 @@ async function executar(sock, msg) {
             if (lead.fase_bot === 'aguardando_nps') {
 
                 if (!/^\d+$/.test(texto)) {
-                    await sock.sendMessage(from, { text: "Por favor, responda apenas com um numero de 0 a 10 para avaliarmos nosso servico!" });
+                    await sock.sendMessage(from, { text: "Por favor, responda essa mensagem com números apenas" });
                     return; 
                 }
 

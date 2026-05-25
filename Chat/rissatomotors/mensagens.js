@@ -1,28 +1,27 @@
 module.exports = {
     mensagens24h: [ 
-        "Olá, {nome}! Como vai?\n\nAqui é da Rissato Motors. Queremos saber como foi a sua experiência com a gente após o serviço realizado em seu veículo: *{model_car}*, placa: *{car_plate}*.\n\nSua opinião é essencial para continuarmos evoluindo e entregando sempre mais qualidade.\n\nSe puder, nos deixe uma nota de 0 a 10.\n\nAgradecemos pelo seu tempo!",   
+        "Olá, {nome}! Como vai?\nAqui é da Rissato Motors.\n \nSomos apaixonados por carros e nos importamos muito com sua “nave”! Por isso, gostaríamos de saber como você se sentiu com o resultado do serviço realizado.\n \nPorque, para nós não é só serviço: é paixão em cada detalhe.\n \nDe 1 a 10, qual nota você atribui para sua experiência com a gente?\n\nPor favor, responda essa mensagem com números apenas\n\nValeu pela confiança!\nFamília Rissato Motors",
         
-        "Olá, {nome}! Como vai?\nAqui é da Rissato Motors. Queremos saber como foi a sua experiência com a gente após o serviço realizado em seu veículo: *{model_car}* (Placa: *{car_plate}*).\nSua opinião é essencial para continuarmos evoluindo e entregando sempre mais qualidade.\nSe puder, nos deixe uma nota de 0 a 10.\n\nAgradecemos pelo seu tempo!",
+        "Olá {nome}! Tudo bem?\nAqui é da Rissato Motors.\n \nPassando aqui pra te perguntar algo que levamos muito a sério: como você se sentiu com o resultado no seu carro?\n \nDe 1 a 10, qual nota você atribui para sua experiência com a gente?\n\nPor favor, responda essa mensagem com número apenas\n \nObrigado pela confiança!\nFamília Rissato Motors",
         
-        "Olá, {nome}! Espero que esteja bem!\nAqui é da Rissato Motors. De 0 a 10, como foi sua experiência com a gente após o serviço no seu *{model_car}* (Placa: *{car_plate}*)?\nSe tiver algo que não ficou 100%, pode nos falar, queremos melhorar pra você!\n\nGrato pelo seu tempo!"
+        "Fala {nome}, beleza?\nAqui é da Rissato Motors.\n \nComo amamos carros, a gente coloca paixão em cada detalhe para te entregar um serviço de qualidade! \n\nMas também nos importamos muito com a sua opinião, por isso queremos te ouvir com atenção.\n \nDe 1 a 10, qual nota você atribui para sua experiência com a gente?\n \nPor favor, responda essa mensagem com números apenas\n\nValeu pela confiança!\nFamília Rissato Motors"
     ],
     
-    // Atualizado para 5 meses com modelo e placa para evitar confusão
     mensagens5meses: [
-        "Olá {nome}! Tudo bem?\nJá faz 5 meses da última visita do seu *{model_car}* (Placa: *{car_plate}*) na Rissato. Que tal agendar uma verificação preventiva?",
+        "*ALERTA DO SEU CARRO!* 🚨\n \nFala! Aqui é da Rissato Motors.\n \nSeu carro pediu pra avisar que já tá chegando a hora da manutenção preventiva.\n\nAfinal, carro bem cuidado é carro que anda forte, liso e sem dor de cabeça, né?\n \nQue tal já deixar tudo em dia antes que aconteça algum problema na rua?\n \nEstamos aguardando sua resposta!\nFamília Rissato Motors",
         
-        "Olá {nome}! Como vai?\nPara manter o seu *{model_car}* (Placa: *{car_plate}*) sempre em dia e evitar gastos imprevistos, recomendamos uma avaliação a cada 5 meses. Deseja agendar um horário?"
+        "Fala! Aqui é da Rissato Motors\n \nPercebeu que seu carro já tá dando aquele sinal? É porque tá chegando a hora da manutenção preventiva.\n \nMáquina bem cuidada anda liso, responde forte e não te deixa na mão, não acha?\n \nBora deixar ele redondo de novo?\n \nEstamos aguardando sua resposta!\nFamília Rissato Motors",
+
+        "Fala {nome}! Aqui é da Rissato Motors\n \nPassando pra te dar um toque antes que seja tarde de mais: já tá na hora marcar a manutenção preventiva do seu carro.\n \nBora deixar ele redondo de novo? Qual a sua disponibilidade?\n \nEstamos aguardando sua resposta!\nFamília Rissato Motors"
     ],
 
-    // Respostas automáticas do NPS centralizadas aqui para organizar o fluxo.js
-    // Respostas automáticas do NPS centralizadas aqui para organizar o fluxo.js
     respostasNPS: {
-        detrator_pergunta: "Obrigado pela sua avaliacao. Voce poderia me contar mais como foi a sua experiencia na Rissato Motors?",
+        detrator_pergunta: "Agradecemos a avaliação!\n\nMas queremos te ouvir com mais detalhe. Se algo na sua experiência com a Rissato Motors não saiu como esperado, pode contar para a gente sem filtro!",
         
-        detrator_agradecimento: "Agradeco pela sua avaliacao, vamos registrar no nosso banco de dados e fazer o possivel para melhorar. Agradeco pela avaliacao!",
+        detrator_agradecimento: "Agradecemos sua avaliação!\n\nQueremos te ouvir com mais detalhes, então se alguma coisa não saiu como você esperava, pode nos contar. \n\nSua opinião é muito importante para buscarmos a melhor forma de ajustar isso pra você.",
         
-        promotor_agradecimento: "Muito obrigado pela sua avaliacao, isso ajuda muito a melhorar o nosso trabalho! Voce poderia nos avaliar no Google para que todos saibam da qualidade do nosso servico? Sua avaliacao e muito importante para a gente!",
+        promotor_agradecimento: "Obrigada pela sua avaliação!\n\nVocê também pode compartilhar sua nota na nossa página do Google!\n\nÉ só clicar no link a seguir",
         
-        promotor_link: "Segue o link: https://g.page/r/Cf9Mnbdd6dKmEBM/review"
+        promotor_link: "https://g.page/r/Cf9Mnbdd6dKmEBM/review"
     }
 };
