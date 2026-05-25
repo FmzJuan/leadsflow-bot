@@ -47,12 +47,14 @@ async function executar(sock, msg) {
             // FLUXO B: RECEBENDO O MOTIVO DA NOTA BAIXA (Resposta à nota 0 a 6)
             // =================================================================
             if (lead.fase_bot === 'aguardando_feedback_ruim') {
+                // ✅ ATUALIZA O ESTADO IMEDIATAMENTE para evitar que mensagens rápidas entrem aqui de novo
+                await query("UPDATE leads SET fase_bot = 'pausado_humano', atualizado_em = CURRENT_TIMESTAMP WHERE id = $1", [lead.id]);
+
                 await sock.sendPresenceUpdate('composing', from);
                 await new Promise(resolve => setTimeout(resolve, 3000));
 
                 await sock.sendMessage(from, { text: respostasNPS.detrator_agradecimento });
 
-                await query("UPDATE leads SET fase_bot = 'pausado_humano', atualizado_em = CURRENT_TIMESTAMP WHERE id = $1", [lead.id]);
                 console.log(`[Fluxo] ${lead.nome} enviou o motivo da nota baixa. Bot finalizado (pausado_humano).`);
                 return;
             }
@@ -79,8 +81,10 @@ async function executar(sock, msg) {
 
                 if (nota >= 0 && nota <= 6) {
                     // DETRATOR
-                    await sock.sendMessage(from, { text: respostasNPS.detrator_pergunta });
+                    // ✅ ATUALIZA O ESTADO IMEDIATAMENTE antes de enviar a mensagem
                     await query("UPDATE leads SET fase_bot = 'aguardando_feedback_ruim', atualizado_em = CURRENT_TIMESTAMP WHERE id = $1", [lead.id]);
+                    
+                    await sock.sendMessage(from, { text: respostasNPS.detrator_pergunta });
                     console.log(`[Fluxo] ${lead.nome} deu nota ${nota}. Aguardando feedback escrito...`);
 
                 } else if (nota >= 7 && nota <= 10) {
@@ -108,7 +112,7 @@ async function executar(sock, msg) {
 
     } catch (error) {
         console.error(`[Fluxo] Erro ao processar mensagem de ${from}:`, error);
-        leadsEmProcessamento.delete(lead.id); // segurança extra
+        // Não precisamos deletar aqui pois o finally já cuida disso
     }
 }
 
