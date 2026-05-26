@@ -4,13 +4,18 @@ const { Worker } = require('bullmq');
 const connection = require('../../DataBase/redis'); 
 const { mensagens24h, mensagens5meses } = require('./mensagens'); 
 const { salvarNoSheets } = require('../../Functions/googleSheets');
-const { query } = require('../../DataBase/conection'); 
+const { query } = require('../../DataBase/conection');
+const { getClientSocket } = require('../../Engine/whatsapp'); // ✅ NOVO: importa o getter
 
-// ✅ CORRIGIDO: recebe 'job' como parâmetro para ter acesso ao idBanco
 async function enviarMensagemHumana(sock, jid, texto, job) {
     if (process.env.DRY_RUN === 'true') {
         console.log(`\x1b[33m[DRY-RUN] Simulação ativada. Mensagem que seria enviada para ${jid}: \x1b[0m\n"${texto}"\n`);
         return; 
+    }
+
+    // ✅ Verifica se o socket está realmente aberto antes de tentar enviar
+    if (!sock || sock.ws?.readyState !== 1) {
+        throw new Error(`Socket fechado ou indisponível para ${jid}. Conexão não está OPEN.`);
     }
 
     try {
@@ -21,18 +26,11 @@ async function enviarMensagemHumana(sock, jid, texto, job) {
         
         await sock.sendMessage(jid, { text: texto });
 
-        // ✅ Tenta salvar o LID no Redis e no banco após o envio
         const contato = sock.store?.contacts?.[jid];
         if (contato?.lid) {
             await connection.set(`lid:${contato.lid}`, jid);
-            console.log(`[LID Mapper] Salvo no Redis após envio: ${contato.lid} -> ${jid}`);
-
             if (job?.data?.idBanco) {
-                await query(
-                    'UPDATE leads SET lid = $1 WHERE id = $2',
-                    [contato.lid, job.data.idBanco]
-                );
-                console.log(`[LID Mapper] Lead ${job.data.idBanco} atualizado com LID no banco.`);
+                await query('UPDATE leads SET lid = $1 WHERE id = $2', [contato.lid, job.data.idBanco]);
             }
         }
 
@@ -43,8 +41,17 @@ async function enviarMensagemHumana(sock, jid, texto, job) {
     }
 }
 
-function iniciarWorker(sock) {
+function iniciarWorker(clienteId) { // ✅ Recebe clienteId ao invés de sock
     const worker = new Worker('pos-venda-rissato', async job => {
+        
+        // ✅ Busca o sock ATUALIZADO a cada job — nunca usa sock antigo
+        const sock = getClientSocket(clienteId);
+
+        if (!sock || sock.ws?.readyState !== 1) {
+            // Joga o erro para o BullMQ retentar automaticamente depois
+            throw new Error(`WhatsApp desconectado. Job será retentado automaticamente.`);
+        }
+
         const { telefone, nome, tipo, idBanco, veiculo, placa } = job.data; 
         const primeiroNome = nome.split(' ')[0];
         const numeroClienteLimpo = telefone.replace(/\D/g, ''); 
@@ -77,7 +84,6 @@ function iniciarWorker(sock) {
                 .replace('{model_car}', veiculo || 'seu veículo') 
                 .replace('{car_plate}', placa || 'não informada');
 
-            // ✅ CORRIGIDO: passa 'job' para a função ter acesso ao idBanco
             await enviarMensagemHumana(sock, jid, textoFinal, job);
 
             const dadosParaPlanilha = [
@@ -91,7 +97,7 @@ function iniciarWorker(sock) {
                         "UPDATE leads SET status_envio = 'enviado', fase_bot = 'aguardando_nps', atualizado_em = CURRENT_TIMESTAMP WHERE id = $1",
                         [idBanco]
                     );
-                    console.log(`[Worker] Banco de dados: Lead ${idBanco} marcado como 'aguardando_nps'.`);
+                    console.log(`[Worker] Lead ${idBanco} marcado como 'aguardando_nps'.`);
                 } catch (dbErr) {
                     console.error(`[Worker] Erro ao atualizar NPS no banco para lead ${idBanco}:`, dbErr);
                 }
@@ -105,7 +111,6 @@ function iniciarWorker(sock) {
                 .replace('{model_car}', veiculo || 'seu veículo') 
                 .replace('{car_plate}', placa || 'não informada');
 
-            // ✅ CORRIGIDO: passa 'job' para a função
             await enviarMensagemHumana(sock, jid, textoFinal, job);
 
             const dadosParaPlanilha = [
@@ -119,14 +124,19 @@ function iniciarWorker(sock) {
                         "UPDATE leads SET status_envio = 'enviado', atualizado_em = CURRENT_TIMESTAMP WHERE id = $1",
                         [idBanco]
                     );
-                    console.log(`[Worker] Banco de dados: Lead ${idBanco} de retorno marcado como enviado.`);
                 } catch (dbErr) {
                     console.error(`[Worker] Erro ao atualizar Retorno no banco para lead ${idBanco}:`, dbErr);
                 }
             }
         }
 
-    }, { connection });
+    }, { 
+        connection,
+        // ✅ Retenta até 3 vezes com delay crescente se der Connection Closed
+        settings: {
+            backoffStrategy: (attemptsMade) => attemptsMade * 8000 // 8s, 16s, 24s
+        }
+    });
 
     worker.on('completed', job => {
         console.log(`✅ [Worker] Job ${job.id} concluído com sucesso!`);

@@ -15,22 +15,16 @@ const { query } = require('../DataBase/conection');
 const sessions = new Map();
 const workersAtivos = new Set();
 
-// ✅ Tenta resolver o LID para um JID numérico usando todas as fontes disponíveis
 async function resolverLID(lid, msg, sock) {
-    // 1. Tenta o Redis primeiro (mais rápido)
     const doRedis = await redis.get(`lid:${lid}`);
-    if (doRedis) {
-        return doRedis;
-    }
+    if (doRedis) return doRedis;
 
-    // 2. Tenta extrair do próprio objeto msg
     const participantMsg = msg.participant || msg.key?.participant;
     if (participantMsg && !participantMsg.endsWith('@lid')) {
         await redis.set(`lid:${lid}`, participantMsg);
         return participantMsg;
     }
 
-    // 3. Tenta resolver via store do sock
     if (sock.store?.contacts) {
         const contato = sock.store.contacts[lid];
         if (contato?.id && !contato.id.endsWith('@lid')) {
@@ -39,7 +33,6 @@ async function resolverLID(lid, msg, sock) {
         }
     }
 
-    // 4. Busca no banco de dados pelo lid salvo anteriormente
     try {
         const result = await query(
             `SELECT celular FROM leads WHERE lid = $1 LIMIT 1`,
@@ -52,8 +45,6 @@ async function resolverLID(lid, msg, sock) {
         }
     } catch (e) { /* ignora */ }
 
-    // 5. 🔥 NOVO FALLBACK: Se for um LID desconhecido, tenta buscar um lead que acabou de ser enviado
-    // mas que ainda não tem LID mapeado. Isso resolve o problema de novos leads manuais.
     try {
         const resultFallback = await query(
             `SELECT id, celular FROM leads 
@@ -66,17 +57,24 @@ async function resolverLID(lid, msg, sock) {
         if (resultFallback.rows[0]) {
             const lead = resultFallback.rows[0];
             const jidFallback = `${lead.celular}@s.whatsapp.net`;
-            
-            // Mapeia este LID para este lead
             await redis.set(`lid:${lid}`, jidFallback);
             await query(`UPDATE leads SET lid = $1 WHERE id = $2`, [lid, lead.id]);
-            
-            console.log(`[LID Mapper] 🎯 Fallback bem-sucedido: Mapeado LID ${lid} para Lead ${lead.id} (${lead.celular})`);
+            console.log(`[LID Mapper] 🎯 Fallback: Mapeado LID ${lid} para Lead ${lead.id} (${lead.celular})`);
             return jidFallback;
         }
     } catch (e) { /* ignora */ }
 
-    return null; // Não foi possível resolver
+    return null;
+}
+
+// ✅ Extrai apenas os dígitos numéricos de um JID (ex: "5511976378041@s.whatsapp.net" -> "5511976378041")
+function extrairNumeroDoJid(jid) {
+    return (jid || '').split('@')[0].replace(/\D/g, '');
+}
+
+// ✅ Últimos N dígitos de uma string numérica
+function ultimosDigitos(numStr, n = 8) {
+    return numStr.slice(-n);
 }
 
 async function connectToWhatsApp(clienteId, onMessage, onWorker) {
@@ -174,37 +172,48 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
             if (jidResolvido) {
                 from = jidResolvido;
                 msg.key.remoteJid = jidResolvido; 
-                
-                // LOG DE SUCESSO NO MAPEAMENTO
                 io.emit(`new-log-${clienteId}`, { 
                     meta: `Sistema (LID Mapper)`,
                     msg: `✅ ID Resolvido: ${lidOriginal} -> ${jidResolvido}`, 
                     type: 'success' 
                 });
             } else {
-                // Se não resolveu, o log de erro será disparado pelo filtro de números permitidos abaixo
+                io.emit(`new-log-${clienteId}`, { 
+                    meta: `Sistema (LID Mapper)`,
+                    msg: `⚠️ Não foi possível resolver LID: ${lidOriginal}`, 
+                    type: 'error' 
+                });
+                return; // Não processa se não resolveu o LID
             }
         }
 
         if (from.endsWith('@g.us') || from === 'status@broadcast') return;
 
-        const envLista = process.env.NUMEROS_PERMITIDOS || "";
-        const numerosPermitidos = envLista.split(',').map(n => n.trim().replace(/\D/g, '')).filter(n => n.length > 0);
-        const fromLimpo = from.replace(/\D/g, '');
+        // ✅ LISTA BRANCA - lógica corrigida
+        const envLista = (process.env.NUMEROS_PERMITIDOS || "").trim();
+        const numerosPermitidos = envLista
+            .split(',')
+            .map(n => n.trim().replace(/\D/g, ''))  // remove tudo que não é dígito
+            .filter(n => n.length > 0);
+
+        // ✅ Extrai o número do JID de forma segura (split no '@', pega só os dígitos)
+        const fromNumero = extrairNumeroDoJid(from);
 
         if (numerosPermitidos.length > 0 && !msg.key.fromMe) {
-            // Função para extrair apenas os últimos 8 dígitos numéricos, ignorando qualquer prefixo (55, 11, etc)
-            const getFinal8 = (num) => num.replace(/\D/g, '').slice(-8);
-
-            const finalRecebido = getFinal8(fromLimpo);
+            const finalRecebido = ultimosDigitos(fromNumero, 8);
 
             const numeroAutorizado = numerosPermitidos.some(numEnv => {
-                return finalRecebido === getFinal8(numEnv);
+                const finalEnv = ultimosDigitos(numEnv, 8);
+
+                // ✅ LOG DE DEBUG — remova após confirmar que está funcionando
+                console.log(`[WhiteList Debug] Comparando: recebido="${finalRecebido}" vs env="${finalEnv}" (original env="${numEnv}")`);
+
+                return finalRecebido === finalEnv;
             });
 
             if (!numeroAutorizado) {
                 io.emit(`new-log-${clienteId}`, { 
-                    meta: `Desconhecido (${fromLimpo})`,
+                    meta: `Desconhecido (${fromNumero})`,
                     msg: `🚫 Mensagem ignorada (Número não autorizado na Lista Branca)`, 
                     type: 'error' 
                 });
