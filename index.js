@@ -76,8 +76,7 @@ async function start() {
                 const fluxoPath = path.join(__dirname, 'Chat', cliente.subdominio, 'fluxo.js');
                 if (fs.existsSync(fluxoPath)) {
                     const fluxoCliente = require(fluxoPath);
-                    await fluxoCliente.executar(sock, msg);
-                }
+                    await fluxoCliente.executar(sock, msg, io, clienteId);                }
             }, iniciarWorker);
         }
     } catch (err) {

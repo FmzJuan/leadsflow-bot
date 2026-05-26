@@ -4,7 +4,7 @@ const { query } = require('../../DataBase/conection');
 const { respostasNPS } = require('./mensagens');
 
 /**
- * 👇 FUNÇÃO NOVA: Sorteia uma mensagem dentro de um array para o bot não ficar repetitivo
+ * FUNÇÃO NOVA: Sorteia uma mensagem dentro de um array para o bot não ficar repetitivo
  */
 function mensagemAleatoria(array) {
     if (Array.isArray(array)) {
@@ -13,13 +13,25 @@ function mensagemAleatoria(array) {
     return array; // Se não for array, retorna o texto direto
 }
 
+// FUNÇÃO NOVA: Envia o log em tempo real para o Front-end
+// 👇 AJUSTE: Adicionei o "meta = ''" aqui para você poder passar o nome e número do cliente!
+function enviarLogFront(io, clienteId, msg, type = 'default', meta = '') {
+    if (io && clienteId) {
+        io.emit(`new-log-${clienteId}`, { msg, type, meta });
+        // Mantém o console.log para você ver no terminal também
+        console.log(`[Front Log - ${type.toUpperCase()}] ${meta ? meta + ' - ' : ''}${msg}`);
+    } else {
+        console.log(`[Terminal] ${msg}`);
+    }
+}
+
 /**
- * ✅ SOLUÇÃO AVANÇADA: AGRUPAMENTO DE MENSAGENS (DEBOUNCE)
+ * SOLUÇÃO AVANÇADA: AGRUPAMENTO DE MENSAGENS (DEBOUNCE)
  */
 const timersAgrupamento = new Map(); // leadId -> NodeJS.Timeout
 const mensagensAcumuladas = new Map(); // leadId -> string[]
 
-async function executar(sock, msg) {
+async function executar(sock, msg, io, clienteId) {
     const from = msg.key.remoteJid;
     const textoOriginal = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || "").trim();
 
@@ -29,7 +41,7 @@ async function executar(sock, msg) {
 
     try {
         const result = await query(`
-            SELECT id, cliente_id, nome, fase_bot 
+            SELECT id, nome, fase_bot 
             FROM leads 
             WHERE celular LIKE $1 
                OR celular = $2
@@ -48,11 +60,15 @@ async function executar(sock, msg) {
 
         if (timersAgrupamento.has(lead.id)) {
             clearTimeout(timersAgrupamento.get(lead.id));
+            enviarLogFront(io, clienteId, `⏳ [${lead.nome}]-[${numeroLimpo}] enviou mais mensagens. Agrupando...`, 'default');
+        } else { 
+            enviarLogFront(io, clienteId, `📥 Nova interaçao de [${lead.nome}]-[${numeroLimpo}]->Iniciando leitura`, 'default');
         }
 
         const tempoEspera = 30000; // 30 segundos
         const timer = setTimeout(async () => {
-            await processarFluxoAgrupado(sock, from, lead, mensagensAcumuladas.get(lead.id));
+            await processarFluxoAgrupado(sock, from, lead, mensagensAcumuladas.get(lead.id), io, clienteId);
+            
             timersAgrupamento.delete(lead.id);
             mensagensAcumuladas.delete(lead.id);
         }, tempoEspera);
@@ -61,13 +77,18 @@ async function executar(sock, msg) {
 
     } catch (error) {
         console.error(`[Fluxo] Erro ao iniciar agrupamento para ${from}:`, error);
+        enviarLogFront(io, clienteId, `❌ Erro ao processar mensagens de [${from}]: ${error.message}`, 'error');
     }
 }
 
-async function processarFluxoAgrupado(sock, from, lead, mensagens) {
+async function processarFluxoAgrupado(sock, from, lead, mensagens, io, clienteId) {
     const textoCompleto = mensagens.join(" | ");
     const numeroLimpo = from.replace(/\D/g, '');
-    const { io } = require('../../index');
+    const metaInfo = `${lead.nome} (${numeroLimpo})`;
+
+    enviarLogFront(io, clienteId, `🚀 Analisando bloco de mensagens de ${lead.nome}...`, 'default', metaInfo);
+    
+    // 👇 AJUSTE: Removido o "const { io } = require('../../index');" que causava erro fatal no Node.
 
     try {
         if (lead.fase_bot === 'aguardando_feedback_ruim') {
@@ -79,12 +100,8 @@ async function processarFluxoAgrupado(sock, from, lead, mensagens) {
             const textoFinal = mensagemAleatoria(respostasNPS.detrator_encerramento);
             await sock.sendMessage(from, { text: textoFinal });
 
-            // LOG NA DASHBOARD COM NOME E NÚMERO NO META
-            io.emit(`new-log-${lead.cliente_id}`, { 
-                meta: `${lead.nome} (${numeroLimpo})`,
-                msg: `📤 Bot enviou: "Agradecimento Feedback"`, 
-                type: 'success' 
-            });
+            // 👇 AJUSTE: Usando a sua função enviarLogFront para manter o padrão e evitar repetição de código
+            enviarLogFront(io, clienteId, `📤 Bot enviou: "Agradecimento Feedback"`, 'success', metaInfo);
 
             console.log(`[Fluxo] ${lead.nome} finalizado -> pausado_humano.`);
             return;
@@ -116,21 +133,13 @@ async function processarFluxoAgrupado(sock, from, lead, mensagens) {
                 const perguntaRuim = mensagemAleatoria(respostasNPS.detrator_pergunta);
                 await sock.sendMessage(from, { text: perguntaRuim });
                 
-                // LOG NA DASHBOARD COM NOME E NÚMERO NO META
-                io.emit(`new-log-${lead.cliente_id}`, { 
-                    meta: `${lead.nome} (${numeroLimpo})`,
-                    msg: `📤 Bot enviou: "Pergunta Feedback Detrator"`, 
-                    type: 'success' 
-                });
+                // 👇 AJUSTE: Usando a sua função enviarLogFront
+                enviarLogFront(io, clienteId, `📤 Bot enviou: "Pergunta Feedback Detrator"`, 'success', metaInfo);
             } else {
                 await sock.sendMessage(from, { text: respostasNPS.promotor_agradecimento });
                 
-                // LOG NA DASHBOARD COM NOME E NÚMERO NO META
-                io.emit(`new-log-${lead.cliente_id}`, { 
-                    meta: `${lead.nome} (${numeroLimpo})`,
-                    msg: `📤 Bot enviou: "Agradecimento Promotor + Link Google"`, 
-                    type: 'success' 
-                });
+                // 👇 AJUSTE: Usando a sua função enviarLogFront
+                enviarLogFront(io, clienteId, `📤 Bot enviou: "Agradecimento Promotor + Link Google"`, 'success', metaInfo);
             }
             
             console.log(`[Fluxo] ${lead.nome} deu nota ${nota}. Próxima fase: ${proximaFase}`);
