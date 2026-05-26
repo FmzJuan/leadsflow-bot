@@ -235,7 +235,8 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
             if (!numeroAutorizado) {
                 console.log(`[Sandbox] Ignorando mensagem não autorizada do número: ${from}`);
                 io.emit(`new-log-${clienteId}`, { 
-                    msg: `🚫 Mensagem ignorada (Número não autorizado): ${fromLimpo}`, 
+                    meta: `Desconhecido (${fromLimpo})`,
+                    msg: `🚫 Mensagem ignorada (Número não autorizado na Lista Branca)`, 
                     type: 'error' 
                 });
                 return;
