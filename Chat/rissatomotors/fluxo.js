@@ -41,7 +41,7 @@ async function executar(sock, msg, io, clienteId) {
 
     try {
         const result = await query(`
-            SELECT id, nome, fase_bot 
+            SELECT id, cliente_id, nome, fase_bot 
             FROM leads 
             WHERE celular LIKE $1 
                OR celular = $2
@@ -67,10 +67,11 @@ async function executar(sock, msg, io, clienteId) {
 
         const tempoEspera = 30000; // 30 segundos
         const timer = setTimeout(async () => {
-            await processarFluxoAgrupado(sock, from, lead, mensagensAcumuladas.get(lead.id), io, clienteId);
-            
+            const mensagensParaProcessar = mensagensAcumuladas.get(lead.id);
             timersAgrupamento.delete(lead.id);
             mensagensAcumuladas.delete(lead.id);
+            
+            await processarFluxoAgrupado(sock, from, lead, mensagensParaProcessar, io, clienteId);
         }, tempoEspera);
 
         timersAgrupamento.set(lead.id, timer);
