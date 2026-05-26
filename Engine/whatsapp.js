@@ -234,6 +234,10 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
             const numeroAutorizado = numerosPermitidos.some(numEnv => fromLimpo.includes(numEnv));
             if (!numeroAutorizado) {
                 console.log(`[Sandbox] Ignorando mensagem não autorizada do número: ${from}`);
+                io.emit(`new-log-${clienteId}`, { 
+                    msg: `🚫 Mensagem ignorada (Número não autorizado): ${fromLimpo}`, 
+                    type: 'error' 
+                });
                 return;
             }
         }

@@ -73,7 +73,8 @@
 
         .log-time { color: #6366f1; font-weight: bold; min-width: 65px; }
         .log-msg { color: #e4e4e7; flex: 1; }
-        .log-success { color: #10b981; flex: 1; }
+        .log-success { color: #10b981; flex: 1; font-weight: 500; }
+        .log-error { color: #ef4444; flex: 1; font-weight: 500; }
 
         .actions-wrapper {
             display: flex;
@@ -218,14 +219,16 @@
 
         function addLog(message, type = 'default') {
             const placeholder = document.getElementById('log-placeholder');
-            if (placeholder) placeholder.style.display = 'none'; // Some com o placeholder no primeiro log
+            if (placeholder) placeholder.style.display = 'none'; 
 
             const now = new Date();
             const timeStr = now.toLocaleTimeString('pt-BR');
             const entry = document.createElement('div');
             entry.className = 'log-entry';
             
-            let msgClass = type === 'success' ? 'log-success' : 'log-msg';
+            let msgClass = 'log-msg';
+            if (type === 'success') msgClass = 'log-success';
+            if (type === 'error') msgClass = 'log-error';
             
             entry.innerHTML = `
                 <span class="log-time">${timeStr}</span>
@@ -233,7 +236,6 @@
             `;
             
             logContainer.prepend(entry);
-            // Limita a quantidade de logs na tela para não pesar
             if (logContainer.children.length > 50) logContainer.lastChild.remove();
         }
 
