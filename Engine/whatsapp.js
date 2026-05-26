@@ -193,13 +193,13 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
         const fromLimpo = from.replace(/\D/g, '');
 
         if (numerosPermitidos.length > 0 && !msg.key.fromMe) {
-            // 👇 SOLUÇÃO: Pega apenas os últimos 8 dígitos de quem mandou a mensagem
-            const finalRecebido = fromLimpo.slice(-8);
+            // Função para extrair apenas os últimos 8 dígitos numéricos, ignorando qualquer prefixo (55, 11, etc)
+            const getFinal8 = (num) => num.replace(/\D/g, '').slice(-8);
+
+            const finalRecebido = getFinal8(fromLimpo);
 
             const numeroAutorizado = numerosPermitidos.some(numEnv => {
-                // 👇 SOLUÇÃO: Pega apenas os últimos 8 dígitos da sua lista do .env
-                const finalEnv = numEnv.slice(-8);
-                return finalRecebido === finalEnv;
+                return finalRecebido === getFinal8(numEnv);
             });
 
             if (!numeroAutorizado) {
