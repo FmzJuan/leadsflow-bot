@@ -132,6 +132,7 @@ function iniciarWorker(clienteId) { // ✅ Recebe clienteId ao invés de sock
 
     }, { 
         connection,
+        concurrency: 1,
         // ✅ Retenta até 3 vezes com delay crescente se der Connection Closed
         settings: {
             backoffStrategy: (attemptsMade) => attemptsMade * 8000 // 8s, 16s, 24s

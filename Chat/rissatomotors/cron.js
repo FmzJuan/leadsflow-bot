@@ -5,10 +5,8 @@ const { dispararMensagemImediata } = require('./scheduler');
 function iniciarCronJobs() {
     console.log("⏰ Motor de Agendamentos Iniciado. Varredura programada para as 08:00 AM.");
 
-    // ✅ Roda todos os dias às 08:00 no fuso de São Paulo
-cron.schedule('* * * * *', async() => {
-            try {
-            // ✅ Ajuste cirúrgico do Fuso Horário na Query
+    cron.schedule('* * * * *', async() => {
+        try {
             const result = await query(`
                 SELECT id, cliente_id, nome, celular, veiculo, placa, tipo_envio 
                 FROM leads 
@@ -17,32 +15,39 @@ cron.schedule('* * * * *', async() => {
             `);
 
             const leadsDoDia = result.rows;
-
             if (leadsDoDia.length === 0) return; 
 
             console.log(`\n🔍 CRONJOB ACHOU ${leadsDoDia.length} LEADS PENDENTES!`);
 
             for (const lead of leadsDoDia) {
-                await dispararMensagemImediata({
-                    telefone: lead.celular,
-                    nome: lead.nome,
-                    tipo_envio: lead.tipo_envio,
-                     id_banco: lead.id,
-                    veiculo: lead.veiculo,
-                    placa: lead.placa //  Agora o dado da placa vai para o scheduler
-                });
+                try {
+                    // ✅ Tenta enfileirar o job
+                    await dispararMensagemImediata({
+                        telefone: lead.celular,
+                        nome: lead.nome,
+                        tipo_envio: lead.tipo_envio,
+                        id_banco: lead.id,
+                        veiculo: lead.veiculo,
+                        placa: lead.placa
+                    });
 
-                await query(`
-                    UPDATE leads 
-                    SET status_envio = 'processando', atualizado_em = CURRENT_TIMESTAMP 
-                    WHERE id = $1
-                `, [lead.id]);
+                    // ✅ Só muda o status se entrou na fila com sucesso
+                    await query(`
+                        UPDATE leads 
+                        SET status_envio = 'processando', atualizado_em = CURRENT_TIMESTAMP 
+                        WHERE id = $1
+                    `, [lead.id]);
+
+                } catch (errLead) {
+                    // ✅ Se falhar, NÃO atualiza o status — cron pega de novo no próximo minuto
+                    console.error(`❌ [CronJob] Falha ao enfileirar lead ${lead.nome} (id: ${lead.id}):`, errLead.message);
+                }
             }
 
         } catch (error) {
             console.error("❌ Erro ao rodar o CronJob diário:", error);
         }
-    }, { timezone: "America/Sao_Paulo" }); // Garante que o Node obedeça o horário BR
+    }, { timezone: "America/Sao_Paulo" });
 }
 
 module.exports = { iniciarCronJobs };

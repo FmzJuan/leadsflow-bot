@@ -27,23 +27,29 @@ async function agendarMensagens(cliente) {
 
 //  NOVA FUNÇÃO PARA O CRONJOB (SEM DELAY)
 async function dispararMensagemImediata(lead) {
-  //  Recebe o veiculo aqui
- const { telefone, nome, tipo_envio, id_banco, veiculo, placa } = lead; 
-  
-  await posVendaQueue.add(
-    tipo_envio, 
-    { 
-        telefone, 
-        nome, 
-        tipo: tipo_envio, 
-        idBanco: id_banco,
-        veiculo: veiculo, 
-        placa: placa  //  Enviando como placa também (o Worker limpa depois se precisar)
-    },
-    { removeOnComplete: true } 
-  );
+    const { telefone, nome, tipo_envio, id_banco, veiculo, placa } = lead; 
+    
+    await posVendaQueue.add(
+        tipo_envio, 
+        { 
+            telefone, 
+            nome, 
+            tipo: tipo_envio, 
+            idBanco: id_banco,
+            veiculo: veiculo, 
+            placa: placa
+        },
+        { 
+            removeOnComplete: true,
+            attempts: 5,          // ✅ Retenta até 5 vezes
+            backoff: {
+                type: 'fixed',
+                delay: 15000      // ✅ Espera 15s entre cada tentativa
+            }
+        } 
+    );
 
-  console.log(`[Fila Redis] Lead ${nome} adicionado para disparo IMEDIATO (${tipo_envio}).`);
+    console.log(`[Fila Redis] Lead ${nome} adicionado para disparo IMEDIATO (${tipo_envio}).`);
 }
 
 // Atualize a exportação para incluir a nova função

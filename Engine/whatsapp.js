@@ -133,7 +133,7 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
             io.emit(`status-${clienteId}`, 'conectado');
 
             if (onWorker && typeof onWorker === 'function' && !workersAtivos.has(clienteId)) {
-                onWorker(sock);
+                onWorker(clienteId);
                 workersAtivos.add(clienteId);
             }
         }
