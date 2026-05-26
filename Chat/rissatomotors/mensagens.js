@@ -16,12 +16,21 @@ module.exports = {
     ],
 
     respostasNPS: {
-        detrator_pergunta: "Agradecemos a avaliação!\n\nMas queremos te ouvir com mais detalhe. Se algo na sua experiência com a Rissato Motors não saiu como esperado, pode contar para a gente sem filtro!",
+        // AS 3 OPÇÕES DO CLIENTE PARA A PERGUNTA (quando a nota é 0 a 6)
+        detrator_pergunta: [
+            "Agradecemos a avaliação!\n\nMas queremos te ouvir com mais detalhe. Se algo na sua experiência com a Rissato Motors não saiu como esperado, pode contar para a gente sem filtro!",
+            "Agradecemos a avaliação!\n\nFique à vontade para nos contar qualquer ponto que não tenha te agradado porque a sua opinião é muito importante para a gente e queremos te ouvir com atenção!",
+            "Agradecemos sua avaliação!\n\nQueremos te ouvir com mais detalhes, então se alguma coisa não saiu como você esperava, pode nos contar. \n\nSua opinião é muito importante para buscarmos a melhor forma de ajustar isso pra você."
+        ],
         
-        detrator_agradecimento: "Agradecemos sua avaliação!\n\nQueremos te ouvir com mais detalhes, então se alguma coisa não saiu como você esperava, pode nos contar. \n\nSua opinião é muito importante para buscarmos a melhor forma de ajustar isso pra você.",
+        // MENSAGENS DE ENCERRAMENTO (criei essas para o bot não perguntar de novo após receber o texto)
+        detrator_encerramento: [
+            "Muito obrigado por compartilhar isso com a gente! Já registramos o seu feedback e nossa equipe vai avaliar tudo com atenção.",
+            "Agradecemos pelo seu tempo em nos explicar! Sua opinião foi enviada para a nossa gerência para podermos melhorar sempre.",
+            "Valeu por nos contar! Levamos seu feedback a sério e ele já foi repassado para a equipe responsável. Se necessário, logo entraremos em contato."
+        ],
         
-        promotor_agradecimento: "Obrigada pela sua avaliação!\n\nVocê também pode compartilhar sua nota na nossa página do Google!\n\nÉ só clicar no link a seguir",
-        
-        promotor_link: "https://g.page/r/Cf9Mnbdd6dKmEBM/review"
+        // MENSAGEM DO PROMOTOR (o cliente pediu tudo junto: texto + link)
+        promotor_agradecimento: "Obrigada pela sua avaliação!\n\nVocê também pode compartilhar sua nota na nossa página do Google!\n\nÉ só clicar no link a seguir\nhttps://g.page/r/Cf9Mnbdd6dKmEBM/review"
     }
-};
+}

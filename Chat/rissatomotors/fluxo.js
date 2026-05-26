@@ -4,6 +4,16 @@ const { query } = require('../../DataBase/conection');
 const { respostasNPS } = require('./mensagens');
 
 /**
+ * 👇 FUNÇÃO NOVA: Sorteia uma mensagem dentro de um array para o bot não ficar repetitivo
+ */
+function mensagemAleatoria(array) {
+    if (Array.isArray(array)) {
+        return array[Math.floor(Math.random() * array.length)];
+    }
+    return array; // Se não for array, retorna o texto direto
+}
+
+/**
  * ✅ SOLUÇÃO AVANÇADA: AGRUPAMENTO DE MENSAGENS (DEBOUNCE)
  * 1. Quando chega uma mensagem, o bot espera um tempo (ex: 30s) para ver se chegam mais.
  * 2. Todas as mensagens enviadas nesse intervalo são acumuladas.
@@ -80,13 +90,16 @@ async function processarFluxoAgrupado(sock, from, lead, mensagens) {
     console.log(`[Fluxo] 🚀 Processando bloco de mensagens de ${lead.nome}: "${textoCompleto}"`);
 
     try {
-        // FLUXO B: RECEBENDO O MOTIVO DA NOTA BAIXA
+        // FLUXO B: RECEBENDO O MOTIVO DA NOTA BAIXA (Cliente acabou de digitar a reclamação)
         if (lead.fase_bot === 'aguardando_feedback_ruim') {
             await query("UPDATE leads SET fase_bot = 'pausado_humano', atualizado_em = CURRENT_TIMESTAMP WHERE id = $1", [lead.id]);
 
             await sock.sendPresenceUpdate('composing', from);
             await new Promise(resolve => setTimeout(resolve, 3000));
-            await sock.sendMessage(from, { text: respostasNPS.detrator_agradecimento });
+            
+            // 👇 ALTERAÇÃO: Manda um ENCERRAMENTO aleatório, sem fazer novas perguntas
+            const textoFinal = mensagemAleatoria(respostasNPS.detrator_encerramento);
+            await sock.sendMessage(from, { text: textoFinal });
 
             console.log(`[Fluxo] ${lead.nome} finalizado -> pausado_humano.`);
             return;
@@ -117,15 +130,12 @@ async function processarFluxoAgrupado(sock, from, lead, mensagens) {
             await new Promise(resolve => setTimeout(resolve, 2000));
 
             if (nota >= 0 && nota <= 6) {
-                await sock.sendMessage(from, { text: respostasNPS.detrator_pergunta });
+                // 👇 ALTERAÇÃO: Sorteia uma das 3 perguntas para detratores passadas pelo cliente
+                const perguntaRuim = mensagemAleatoria(respostasNPS.detrator_pergunta);
+                await sock.sendMessage(from, { text: perguntaRuim });
             } else {
+                // 👇 ALTERAÇÃO: Manda o texto do cliente de nota alta com o link do Google tudo na mesma mensagem
                 await sock.sendMessage(from, { text: respostasNPS.promotor_agradecimento });
-                
-                setTimeout(async () => {
-                    await sock.sendPresenceUpdate('composing', from);
-                    await new Promise(r => setTimeout(r, 2000));
-                    await sock.sendMessage(from, { text: respostasNPS.promotor_link });
-                }, 15000);
             }
             
             console.log(`[Fluxo] ${lead.nome} deu nota ${nota}. Próxima fase: ${proximaFase}`);
