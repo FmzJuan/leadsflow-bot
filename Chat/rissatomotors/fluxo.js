@@ -14,11 +14,9 @@ function mensagemAleatoria(array) {
 }
 
 // FUNÇÃO NOVA: Envia o log em tempo real para o Front-end
-// 👇 AJUSTE: Adicionei o "meta = ''" aqui para você poder passar o nome e número do cliente!
 function enviarLogFront(io, clienteId, msg, type = 'default', meta = '') {
     if (io && clienteId) {
         io.emit(`new-log-${clienteId}`, { msg, type, meta });
-        // Mantém o console.log para você ver no terminal também
         console.log(`[Front Log - ${type.toUpperCase()}] ${meta ? meta + ' - ' : ''}${msg}`);
     } else {
         console.log(`[Terminal] ${msg}`);
@@ -37,17 +35,20 @@ async function executar(sock, msg, io, clienteId) {
 
     if (!textoOriginal) return;
 
+    // 👇 AJUSTE: Pegar apenas os últimos 8 dígitos para a busca no banco
     const numeroLimpo = from.replace(/\D/g, '');
+    const finalNumero = numeroLimpo.slice(-8);
 
     try {
+        // 👇 AJUSTE: Buscar no banco de dados usando apenas os últimos 8 dígitos
         const result = await query(`
             SELECT id, cliente_id, nome, fase_bot 
             FROM leads 
             WHERE celular LIKE $1 
-               OR celular = $2
+            ORDER BY id DESC 
             LIMIT 1
-        `, [`%${numeroLimpo}%`, from.split('@')[0]]);
-
+        `, [`%${finalNumero}%`]);
+        
         const lead = result.rows[0];
 
         if (!lead || (lead.fase_bot !== 'aguardando_nps' && lead.fase_bot !== 'aguardando_feedback_ruim')) {
@@ -89,8 +90,6 @@ async function processarFluxoAgrupado(sock, from, lead, mensagens, io, clienteId
 
     enviarLogFront(io, clienteId, `🚀 Analisando bloco de mensagens de ${lead.nome}...`, 'default', metaInfo);
     
-    // 👇 AJUSTE: Removido o "const { io } = require('../../index');" que causava erro fatal no Node.
-
     try {
         if (lead.fase_bot === 'aguardando_feedback_ruim') {
             await query("UPDATE leads SET fase_bot = 'pausado_humano', atualizado_em = CURRENT_TIMESTAMP WHERE id = $1", [lead.id]);
@@ -101,7 +100,6 @@ async function processarFluxoAgrupado(sock, from, lead, mensagens, io, clienteId
             const textoFinal = mensagemAleatoria(respostasNPS.detrator_encerramento);
             await sock.sendMessage(from, { text: textoFinal });
 
-            // 👇 AJUSTE: Usando a sua função enviarLogFront para manter o padrão e evitar repetição de código
             enviarLogFront(io, clienteId, `📤 Bot enviou: "Agradecimento Feedback"`, 'success', metaInfo);
 
             console.log(`[Fluxo] ${lead.nome} finalizado -> pausado_humano.`);
@@ -134,12 +132,10 @@ async function processarFluxoAgrupado(sock, from, lead, mensagens, io, clienteId
                 const perguntaRuim = mensagemAleatoria(respostasNPS.detrator_pergunta);
                 await sock.sendMessage(from, { text: perguntaRuim });
                 
-                // 👇 AJUSTE: Usando a sua função enviarLogFront
                 enviarLogFront(io, clienteId, `📤 Bot enviou: "Pergunta Feedback Detrator"`, 'success', metaInfo);
             } else {
                 await sock.sendMessage(from, { text: respostasNPS.promotor_agradecimento });
                 
-                // 👇 AJUSTE: Usando a sua função enviarLogFront
                 enviarLogFront(io, clienteId, `📤 Bot enviou: "Agradecimento Promotor + Link Google"`, 'success', metaInfo);
             }
             

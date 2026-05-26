@@ -193,7 +193,15 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
         const fromLimpo = from.replace(/\D/g, '');
 
         if (numerosPermitidos.length > 0 && !msg.key.fromMe) {
-            const numeroAutorizado = numerosPermitidos.some(numEnv => fromLimpo.includes(numEnv));
+            // 👇 SOLUÇÃO: Pega apenas os últimos 8 dígitos de quem mandou a mensagem
+            const finalRecebido = fromLimpo.slice(-8);
+
+            const numeroAutorizado = numerosPermitidos.some(numEnv => {
+                // 👇 SOLUÇÃO: Pega apenas os últimos 8 dígitos da sua lista do .env
+                const finalEnv = numEnv.slice(-8);
+                return finalRecebido === finalEnv;
+            });
+
             if (!numeroAutorizado) {
                 io.emit(`new-log-${clienteId}`, { 
                     meta: `Desconhecido (${fromLimpo})`,
