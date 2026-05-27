@@ -39,7 +39,8 @@ async function resolverLID(lid, msg, sock) {
             [lid]
         );
         if (result.rows[0]?.celular) {
-            const jid = `${result.rows[0].celular}@s.whatsapp.net`;
+            const celularLimpo = result.rows[0].celular.replace(/\D/g, '');
+            const jid = `${celularLimpo}@s.whatsapp.net`;
             await redis.set(`lid:${lid}`, jid);
             return jid;
         }
@@ -54,14 +55,15 @@ async function resolverLID(lid, msg, sock) {
              ORDER BY atualizado_em DESC LIMIT 1`,
             []
         );
-        if (resultFallback.rows[0]) {
-            const lead = resultFallback.rows[0];
-            const jidFallback = `${lead.celular}@s.whatsapp.net`;
-            await redis.set(`lid:${lid}`, jidFallback);
-            await query(`UPDATE leads SET lid = $1 WHERE id = $2`, [lid, lead.id]);
-            console.log(`[LID Mapper] 🎯 Fallback: Mapeado LID ${lid} para Lead ${lead.id} (${lead.celular})`);
-            return jidFallback;
-        }
+        // Fallback (lead sem lid)
+    if (resultFallback.rows[0]) {
+        const lead = resultFallback.rows[0];
+        const celularLimpo = lead.celular.replace(/\D/g, '');
+        const jidFallback = `${celularLimpo}@s.whatsapp.net`;
+        await redis.set(`lid:${lid}`, jidFallback);
+        await query(`UPDATE leads SET lid = $1 WHERE id = $2`, [lid, lead.id]);
+      return jidFallback;
+}
     } catch (e) { /* ignora */ }
 
     return null;
