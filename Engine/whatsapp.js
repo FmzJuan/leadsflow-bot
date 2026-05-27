@@ -14,9 +14,8 @@ const { query } = require('../DataBase/conection');
 
 const sessions = new Map();
 const workersAtivos = new Set();
-const sessionStores = new Map(); // ✅ store manual de contatos por sessão
+const sessionStores = new Map();
 
-// ✅ Store simples de contatos (substitui makeInMemoryStore removido no Baileys moderno)
 function criarContactStore() {
     const contacts = {};
 
@@ -39,7 +38,7 @@ function criarContactStore() {
 }
 
 async function resolverLID(lid, msg, sock) {
-    // 1️⃣ Cache Redis
+    // 1️⃣ Cache Redis — mais rápido
     const doRedis = await redis.get(`lid:${lid}`);
     if (doRedis) return doRedis;
 
@@ -55,12 +54,13 @@ async function resolverLID(lid, msg, sock) {
     if (store?.contacts) {
         const contato = store.contacts[lid];
         if (contato?.id && !contato.id.endsWith('@lid')) {
-            await redis.set(`lid:${lid}`, contato.id, 'EX', 604800);
-            return contato.id;
+            const jidLimpo = `${contato.id.split('@')[0].replace(/\D/g, '')}@s.whatsapp.net`;
+            await redis.set(`lid:${lid}`, jidLimpo, 'EX', 604800);
+            return jidLimpo;
         }
     }
 
-    // 4️⃣ Banco de dados (campo lid)
+    // 4️⃣ Banco de dados — campo lid já salvo
     try {
         const result = await query(
             `SELECT celular FROM leads WHERE lid = $1 LIMIT 1`,
@@ -73,7 +73,33 @@ async function resolverLID(lid, msg, sock) {
             return jid;
         }
     } catch (e) {
-        console.error(`[resolverLID] Erro ao consultar banco para LID ${lid}:`, e.message);
+        console.error(`[resolverLID] Erro banco (lid salvo) para ${lid}:`, e.message);
+    }
+
+    // 5️⃣ FALLBACK — busca lead aguardando resposta que ainda não tem LID mapeado
+    // Essencial para o primeiro contato após envio da mensagem de NPS
+    try {
+        const resultFallback = await query(
+            `SELECT id, celular FROM leads 
+             WHERE (lid IS NULL OR lid = '') 
+             AND status_envio = 'enviado' 
+             AND fase_bot IN ('aguardando_nps', 'aguardando_feedback_ruim')
+             ORDER BY atualizado_em DESC LIMIT 1`,
+            []
+        );
+        if (resultFallback.rows[0]) {
+            const lead = resultFallback.rows[0];
+            const celularLimpo = lead.celular.replace(/\D/g, '');
+            const jidFallback = `${celularLimpo}@s.whatsapp.net`;
+
+            await redis.set(`lid:${lid}`, jidFallback, 'EX', 604800);
+            await query(`UPDATE leads SET lid = $1 WHERE id = $2`, [lid, lead.id]);
+
+            console.log(`[LID Mapper] 🎯 Fallback: Mapeado LID ${lid} -> Lead ${lead.id} (${celularLimpo})`);
+            return jidFallback;
+        }
+    } catch (e) {
+        console.error(`[resolverLID] Erro banco (fallback) para ${lid}:`, e.message);
     }
 
     return null;
@@ -104,13 +130,12 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
     const sock = makeWASocket({
         version,
         auth: state,
-        printQRInTerminal: true,
+        printQRInTerminal: false, // ✅ Remove warning de deprecated
         logger: pino({ level: 'silent' }),
         browser: [`LeadsFlow - Cliente ${clienteId}`, "Chrome", "120.0"], 
         markOnlineOnConnect: true,
     });
 
-    // ✅ Cria o store, vincula aos eventos e salva no mapa de sessões
     const store = criarContactStore();
     store.bind(sock.ev);
     sessionStores.set(clienteId, store);
@@ -158,14 +183,15 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
 
     sock.ev.on('creds.update', saveCreds);
 
+    // ✅ Salva mapeamento LID->JID no Redis e no banco ao receber contatos
     sock.ev.on('contacts.upsert', async (contacts) => {
         for (const contact of contacts) {
             if (contact.lid && contact.id && !contact.id.endsWith('@lid')) {
-                // ✅ TTL de 7 dias para sobreviver reinicializações do Redis
-                await redis.set(`lid:${contact.lid}`, contact.id, 'EX', 604800);
-                console.log(`[Contacts Upsert] Mapeado: ${contact.lid} -> ${contact.id}`);
+                const jidLimpo = `${contact.id.split('@')[0].replace(/\D/g, '')}@s.whatsapp.net`;
+                await redis.set(`lid:${contact.lid}`, jidLimpo, 'EX', 604800);
+                console.log(`[Contacts Upsert] Mapeado: ${contact.lid} -> ${jidLimpo}`);
                 try {
-                    const numero = contact.id.replace('@s.whatsapp.net', '');
+                    const numero = contact.id.replace('@s.whatsapp.net', '').replace(/\D/g, '');
                     await query(
                         `UPDATE leads SET lid = $1 WHERE celular LIKE $2 AND (lid IS NULL OR lid = '')`,
                         [contact.lid, `%${numero}%`]
@@ -183,6 +209,7 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
 
         let from = msg.key.remoteJid;
 
+        // ✅ Resolução de LID
         if (from && from.endsWith('@lid')) {
             const lidOriginal = from;
             const jidResolvido = await resolverLID(from, msg, sock);
@@ -207,6 +234,7 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
 
         if (from.endsWith('@g.us') || from === 'status@broadcast') return;
 
+        // ✅ Lista branca
         const envLista = (process.env.NUMEROS_PERMITIDOS || "").trim();
         const numerosPermitidos = envLista
             .split(',')
@@ -220,7 +248,6 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
 
             const numeroAutorizado = numerosPermitidos.some(numEnv => {
                 const finalEnv = ultimosDigitos(numEnv, 8);
-                console.log(`[WhiteList Debug] Comparando: recebido="${finalRecebido}" vs env="${finalEnv}" (original env="${numEnv}")`);
                 return finalRecebido === finalEnv;
             });
 
