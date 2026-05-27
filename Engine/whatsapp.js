@@ -191,37 +191,8 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
 
         if (from.endsWith('@g.us') || from === 'status@broadcast') return;
 
-        // ✅ LISTA BRANCA - lógica corrigida
-        const envLista = (process.env.NUMEROS_PERMITIDOS || "").trim();
-        const numerosPermitidos = envLista
-            .split(',')
-            .map(n => n.trim().replace(/\D/g, ''))  // remove tudo que não é dígito
-            .filter(n => n.length > 0);
-
-        // ✅ Extrai o número do JID de forma segura (split no '@', pega só os dígitos)
-        const fromNumero = extrairNumeroDoJid(from);
-
-        if (numerosPermitidos.length > 0 && !msg.key.fromMe) {
-            const finalRecebido = ultimosDigitos(fromNumero, 8);
-
-            const numeroAutorizado = numerosPermitidos.some(numEnv => {
-                const finalEnv = ultimosDigitos(numEnv, 8);
-
-                // ✅ LOG DE DEBUG — remova após confirmar que está funcionando
-                console.log(`[WhiteList Debug] Comparando: recebido="${finalRecebido}" vs env="${finalEnv}" (original env="${numEnv}")`);
-
-                return finalRecebido === finalEnv;
-            });
-
-            if (!numeroAutorizado) {
-                io.emit(`new-log-${clienteId}`, { 
-                    meta: `Desconhecido (${fromNumero})`,
-                    msg: `🚫 Mensagem ignorada (Número não autorizado na Lista Branca)`, 
-                    type: 'error' 
-                });
-                return;
-            }
-        }
+        // ✅ Segurança feita no fluxo.js: só processa leads ativos no banco.
+        // Lista branca estática removida — era redundante e bloqueava leads reais.
 
         const texto = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || "").toLowerCase();
         if (msg.key.fromMe && texto !== '!disparar' && texto !== '/relatorio') return;
