@@ -46,25 +46,9 @@ async function resolverLID(lid, msg, sock) {
         }
     } catch (e) { /* ignora */ }
 
-    try {
-        const resultFallback = await query(
-            `SELECT id, celular FROM leads 
-             WHERE (lid IS NULL OR lid = '') 
-             AND status_envio = 'enviado' 
-             AND fase_bot IN ('aguardando_nps', 'aguardando_feedback_ruim')
-             ORDER BY atualizado_em DESC LIMIT 1`,
-            []
-        );
-        // Fallback (lead sem lid)
-    if (resultFallback.rows[0]) {
-        const lead = resultFallback.rows[0];
-        const celularLimpo = lead.celular.replace(/\D/g, '');
-        const jidFallback = `${celularLimpo}@s.whatsapp.net`;
-        await redis.set(`lid:${lid}`, jidFallback);
-        await query(`UPDATE leads SET lid = $1 WHERE id = $2`, [lid, lead.id]);
-      return jidFallback;
-}
-    } catch (e) { /* ignora */ }
+    // ⚠️ Fallback cego removido: associava LIDs aleatoriamente a leads sem lid,
+    // causando mensagens enviadas para o número errado. Se chegou até aqui sem
+    // resolver o LID, é mais seguro descartar do que adivinhar.
 
     return null;
 }
@@ -191,8 +175,37 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
 
         if (from.endsWith('@g.us') || from === 'status@broadcast') return;
 
-        // ✅ Segurança feita no fluxo.js: só processa leads ativos no banco.
-        // Lista branca estática removida — era redundante e bloqueava leads reais.
+        // ✅ LISTA BRANCA - lógica corrigida
+        const envLista = (process.env.NUMEROS_PERMITIDOS || "").trim();
+        const numerosPermitidos = envLista
+            .split(',')
+            .map(n => n.trim().replace(/\D/g, ''))  // remove tudo que não é dígito
+            .filter(n => n.length > 0);
+
+        // ✅ Extrai o número do JID de forma segura (split no '@', pega só os dígitos)
+        const fromNumero = extrairNumeroDoJid(from);
+
+        if (numerosPermitidos.length > 0 && !msg.key.fromMe) {
+            const finalRecebido = ultimosDigitos(fromNumero, 8);
+
+            const numeroAutorizado = numerosPermitidos.some(numEnv => {
+                const finalEnv = ultimosDigitos(numEnv, 8);
+
+                // ✅ LOG DE DEBUG — remova após confirmar que está funcionando
+                console.log(`[WhiteList Debug] Comparando: recebido="${finalRecebido}" vs env="${finalEnv}" (original env="${numEnv}")`);
+
+                return finalRecebido === finalEnv;
+            });
+
+            if (!numeroAutorizado) {
+                io.emit(`new-log-${clienteId}`, { 
+                    meta: `Desconhecido (${fromNumero})`,
+                    msg: `🚫 Mensagem ignorada (Número não autorizado na Lista Branca)`, 
+                    type: 'error' 
+                });
+                return;
+            }
+        }
 
         const texto = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || "").toLowerCase();
         if (msg.key.fromMe && texto !== '!disparar' && texto !== '/relatorio') return;

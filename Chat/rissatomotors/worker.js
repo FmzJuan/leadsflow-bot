@@ -24,13 +24,24 @@ async function enviarMensagemHumana(sock, jid, texto, job) {
         console.log(`[Worker] Simulando digitação por ${tempoDigitando / 1000}s para ${jid}...`);
         await new Promise(resolve => setTimeout(resolve, tempoDigitando));
         
-        await sock.sendMessage(jid, { text: texto });
+        const msgEnviada = await sock.sendMessage(jid, { text: texto });
 
-        const contato = sock.store?.contacts?.[jid];
-        if (contato?.lid) {
-            await connection.set(`lid:${contato.lid}`, jid);
+        // ✅ Captura o LID a partir do retorno do sendMessage (mais confiável que sock.store)
+        const lidRetornado = msgEnviada?.key?.remoteJid;
+        if (lidRetornado && lidRetornado.endsWith('@lid')) {
+            await connection.set(`lid:${lidRetornado}`, jid);
+            console.log(`[Worker] LID mapeado no envio: ${lidRetornado} -> ${jid}`);
             if (job?.data?.idBanco) {
-                await query('UPDATE leads SET lid = $1 WHERE id = $2', [contato.lid, job.data.idBanco]);
+                await query('UPDATE leads SET lid = $1 WHERE id = $2', [lidRetornado, job.data.idBanco]);
+            }
+        } else {
+            // Fallback: tenta pelo store se o sendMessage não retornou @lid
+            const contato = sock.store?.contacts?.[jid];
+            if (contato?.lid) {
+                await connection.set(`lid:${contato.lid}`, jid);
+                if (job?.data?.idBanco) {
+                    await query('UPDATE leads SET lid = $1 WHERE id = $2', [contato.lid, job.data.idBanco]);
+                }
             }
         }
 
