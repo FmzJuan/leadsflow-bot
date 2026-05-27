@@ -1,11 +1,13 @@
+// Chat/RissatoMotors/cron.js
+
 const cron = require('node-cron');
 const { query } = require('../../DataBase/conection'); 
 const { dispararMensagemImediata } = require('./scheduler');
 
 function iniciarCronJobs() {
-    console.log("⏰ Motor de Agendamentos Iniciado. Varredura programada para as 08:00 AM.");
+    console.log("⏰ Motor de Agendamentos Iniciado. Varredura a cada minuto.");
 
-    cron.schedule('* * * * *', async() => {
+    cron.schedule('* * * * *', async () => {
         try {
             const result = await query(`
                 SELECT id, cliente_id, nome, celular, veiculo, placa, tipo_envio 
@@ -21,7 +23,15 @@ function iniciarCronJobs() {
 
             for (const lead of leadsDoDia) {
                 try {
-                    // ✅ Tenta enfileirar o job
+                    // ✅ Marca como 'processando' ANTES de enfileirar
+                    // Isso evita que o cron pegue o mesmo lead no próximo minuto
+                    await query(`
+                        UPDATE leads 
+                        SET status_envio = 'processando', atualizado_em = CURRENT_TIMESTAMP 
+                        WHERE id = $1 AND status_envio = 'pendente'
+                    `, [lead.id]);
+
+                    // ✅ Só enfileira depois de travar o status
                     await dispararMensagemImediata({
                         telefone: lead.celular,
                         nome: lead.nome,
@@ -31,16 +41,12 @@ function iniciarCronJobs() {
                         placa: lead.placa
                     });
 
-                    // ✅ Só muda o status se entrou na fila com sucesso
-                    await query(`
-                        UPDATE leads 
-                        SET status_envio = 'processando', atualizado_em = CURRENT_TIMESTAMP 
-                        WHERE id = $1
-                    `, [lead.id]);
-
                 } catch (errLead) {
-                    // ✅ Se falhar, NÃO atualiza o status — cron pega de novo no próximo minuto
+                    // ✅ Se falhar ao enfileirar, volta para 'pendente' para o cron tentar de novo
                     console.error(`❌ [CronJob] Falha ao enfileirar lead ${lead.nome} (id: ${lead.id}):`, errLead.message);
+                    await query(`
+                        UPDATE leads SET status_envio = 'pendente' WHERE id = $1
+                    `, [lead.id]).catch(() => {});
                 }
             }
 

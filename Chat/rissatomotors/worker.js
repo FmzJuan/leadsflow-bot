@@ -5,7 +5,7 @@ const connection = require('../../DataBase/redis');
 const { mensagens24h, mensagens5meses } = require('./mensagens'); 
 const { salvarNoSheets } = require('../../Functions/googleSheets');
 const { query } = require('../../DataBase/conection');
-const { getClientSocket } = require('../../Engine/whatsapp'); // ✅ NOVO: importa o getter
+const { getClientSocket } = require('../../Engine/whatsapp');
 
 async function enviarMensagemHumana(sock, jid, texto, job) {
     if (process.env.DRY_RUN === 'true') {
@@ -13,9 +13,9 @@ async function enviarMensagemHumana(sock, jid, texto, job) {
         return; 
     }
 
-    // ✅ Verifica se o socket está realmente aberto antes de tentar enviar
-    if (!sock || sock.ws?.readyState !== 1) {
-        throw new Error(`Socket fechado ou indisponível para ${jid}. Conexão não está OPEN.`);
+    // ✅ Verifica só se o sock existe — não checa readyState (instável no Baileys)
+    if (!sock) {
+        throw new Error(`Socket inexistente para ${jid}. WhatsApp não conectado.`);
     }
 
     try {
@@ -41,14 +41,14 @@ async function enviarMensagemHumana(sock, jid, texto, job) {
     }
 }
 
-function iniciarWorker(clienteId) { // ✅ Recebe clienteId ao invés de sock
+function iniciarWorker(clienteId) {
     const worker = new Worker('pos-venda-rissato', async job => {
         
-        // ✅ Busca o sock ATUALIZADO a cada job — nunca usa sock antigo
+        // ✅ Busca o sock ATUALIZADO a cada job
         const sock = getClientSocket(clienteId);
 
-        if (!sock || sock.ws?.readyState !== 1) {
-            // Joga o erro para o BullMQ retentar automaticamente depois
+        // ✅ Sem checagem de readyState — o Baileys gerencia internamente
+        if (!sock) {
             throw new Error(`WhatsApp desconectado. Job será retentado automaticamente.`);
         }
 
@@ -132,11 +132,9 @@ function iniciarWorker(clienteId) { // ✅ Recebe clienteId ao invés de sock
 
     }, { 
         connection,
-        concurrency: 1,
-        // ✅ Retenta até 3 vezes com delay crescente se der Connection Closed
-        settings: {
-            backoffStrategy: (attemptsMade) => attemptsMade * 8000 // 8s, 16s, 24s
-        }
+        concurrency: 1
+        // ✅ REMOVIDO: settings.backoffStrategy não funciona no BullMQ v4+
+        // O backoff é configurado por job no scheduler.js (attempts + backoff.fixed)
     });
 
     worker.on('completed', job => {
@@ -144,7 +142,7 @@ function iniciarWorker(clienteId) { // ✅ Recebe clienteId ao invés de sock
     });
 
     worker.on('failed', (job, err) => {
-        console.error(`❌ [Worker] Falha no job ${job.id}:`, err.message);
+        console.error(`❌ [Worker] Falha no job ${job.id} (tentativa ${job.attemptsMade}/${job.opts.attempts}):`, err.message);
     });
 
     console.log(`👷 Worker BullMQ da Rissato Motors pronto para processar jobs.`);
