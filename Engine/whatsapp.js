@@ -4,8 +4,7 @@ const {
     default: makeWASocket, 
     useMultiFileAuthState, 
     DisconnectReason,
-    fetchLatestBaileysVersion,
-    makeInMemoryStore   // ✅ ADICIONADO: necessário para resolver LIDs
+    fetchLatestBaileysVersion
 } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const path = require("path");
@@ -15,31 +14,53 @@ const { query } = require('../DataBase/conection');
 
 const sessions = new Map();
 const workersAtivos = new Set();
-const sessionStores = new Map(); // ✅ ADICIONADO: armazena o store de cada sessão
+const sessionStores = new Map(); // ✅ store manual de contatos por sessão
+
+// ✅ Store simples de contatos (substitui makeInMemoryStore removido no Baileys moderno)
+function criarContactStore() {
+    const contacts = {};
+
+    function bind(ev) {
+        ev.on('contacts.upsert', (lista) => {
+            for (const c of lista) {
+                if (c.id) contacts[c.id] = c;
+                if (c.lid) contacts[c.lid] = c;
+            }
+        });
+        ev.on('contacts.update', (updates) => {
+            for (const upd of updates) {
+                const id = upd.id || upd.lid;
+                if (id) contacts[id] = { ...(contacts[id] || {}), ...upd };
+            }
+        });
+    }
+
+    return { contacts, bind };
+}
 
 async function resolverLID(lid, msg, sock) {
-    // 1️⃣ Tenta o cache do Redis primeiro (mais rápido)
+    // 1️⃣ Cache Redis
     const doRedis = await redis.get(`lid:${lid}`);
     if (doRedis) return doRedis;
 
-    // 2️⃣ Tenta extrair do campo participant da mensagem
+    // 2️⃣ Campo participant da mensagem
     const participantMsg = msg.participant || msg.key?.participant;
     if (participantMsg && !participantMsg.endsWith('@lid')) {
-        await redis.set(`lid:${lid}`, participantMsg);
+        await redis.set(`lid:${lid}`, participantMsg, 'EX', 604800);
         return participantMsg;
     }
 
-    // 3️⃣ ✅ CORRIGIDO: usa o store da sessão (era sock.store, que nunca existia)
+    // 3️⃣ Store em memória desta sessão
     const store = sessionStores.get(sock._clienteId);
     if (store?.contacts) {
         const contato = store.contacts[lid];
         if (contato?.id && !contato.id.endsWith('@lid')) {
-            await redis.set(`lid:${lid}`, contato.id);
+            await redis.set(`lid:${lid}`, contato.id, 'EX', 604800);
             return contato.id;
         }
     }
 
-    // 4️⃣ Tenta buscar pelo campo lid no banco
+    // 4️⃣ Banco de dados (campo lid)
     try {
         const result = await query(
             `SELECT celular FROM leads WHERE lid = $1 LIMIT 1`,
@@ -48,23 +69,20 @@ async function resolverLID(lid, msg, sock) {
         if (result.rows[0]?.celular) {
             const celularLimpo = result.rows[0].celular.replace(/\D/g, '');
             const jid = `${celularLimpo}@s.whatsapp.net`;
-            await redis.set(`lid:${lid}`, jid);
+            await redis.set(`lid:${lid}`, jid, 'EX', 604800);
             return jid;
         }
     } catch (e) {
         console.error(`[resolverLID] Erro ao consultar banco para LID ${lid}:`, e.message);
     }
 
-    // ⚠️ Fallback removido intencionalmente para evitar envio ao número errado.
     return null;
 }
 
-// ✅ Extrai apenas os dígitos numéricos de um JID (ex: "5511976378041@s.whatsapp.net" -> "5511976378041")
 function extrairNumeroDoJid(jid) {
     return (jid || '').split('@')[0].replace(/\D/g, '');
 }
 
-// ✅ Últimos N dígitos de uma string numérica
 function ultimosDigitos(numStr, n = 8) {
     return numStr.slice(-n);
 }
@@ -83,10 +101,6 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
     const authPath = path.resolve(sessionsDir, `auth_info_${clienteId}`);
     const { state, saveCreds } = await useMultiFileAuthState(authPath);
 
-    // ✅ ADICIONADO: cria e persiste o store de contatos desta sessão
-    const store = makeInMemoryStore({ logger: pino({ level: 'silent' }) });
-    sessionStores.set(clienteId, store);
-
     const sock = makeWASocket({
         version,
         auth: state,
@@ -96,10 +110,10 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
         markOnlineOnConnect: true,
     });
 
-    // ✅ ADICIONADO: vincula o store ao socket para capturar contatos automaticamente
+    // ✅ Cria o store, vincula aos eventos e salva no mapa de sessões
+    const store = criarContactStore();
     store.bind(sock.ev);
-
-    // ✅ ADICIONADO: marca o socket com o clienteId para uso no resolverLID
+    sessionStores.set(clienteId, store);
     sock._clienteId = clienteId;
 
     sock.ev.on('connection.update', (update) => {
@@ -117,7 +131,7 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
                 sessions.delete(clienteId);
                 workersAtivos.delete(clienteId);
-                sessionStores.delete(clienteId); // ✅ Limpa o store ao desconectar
+                sessionStores.delete(clienteId);
 
                 if (fs.existsSync(authPath)) {
                     fs.rmSync(authPath, { recursive: true, force: true });
@@ -147,7 +161,7 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
     sock.ev.on('contacts.upsert', async (contacts) => {
         for (const contact of contacts) {
             if (contact.lid && contact.id && !contact.id.endsWith('@lid')) {
-                // ✅ Salva no Redis com TTL de 7 dias para sobreviver reinicializações
+                // ✅ TTL de 7 dias para sobreviver reinicializações do Redis
                 await redis.set(`lid:${contact.lid}`, contact.id, 'EX', 604800);
                 console.log(`[Contacts Upsert] Mapeado: ${contact.lid} -> ${contact.id}`);
                 try {
@@ -169,7 +183,6 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
 
         let from = msg.key.remoteJid;
 
-        // ✅ RESOLUÇÃO DO LID
         if (from && from.endsWith('@lid')) {
             const lidOriginal = from;
             const jidResolvido = await resolverLID(from, msg, sock);
@@ -188,13 +201,12 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
                     msg: `⚠️ Não foi possível resolver LID: ${lidOriginal}`, 
                     type: 'error' 
                 });
-                return; // Não processa se não resolveu o LID
+                return;
             }
         }
 
         if (from.endsWith('@g.us') || from === 'status@broadcast') return;
 
-        // ✅ LISTA BRANCA - lógica corrigida
         const envLista = (process.env.NUMEROS_PERMITIDOS || "").trim();
         const numerosPermitidos = envLista
             .split(',')
