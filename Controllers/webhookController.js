@@ -1,5 +1,5 @@
-const { query } = require(\'../DataBase/conection\');
-const { normalizarJid, normalizarNumero } = require(\'../utils/formatador\');
+const { query } = require('../DataBase/conection');
+const { normalizarJid, normalizarNumero } = require('../utils/formatador');
 const { salvarNoSheets } = require('../Functions/googleSheets');
 
 async function processarDadosERP(req, res) {

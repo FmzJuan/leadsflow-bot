@@ -25,10 +25,10 @@ function formatarNumeroBaileys(celularBruto) {
  * @returns {string} O número de telefone normalizado (apenas dígitos).
  */
 function normalizarNumero(numeroBruto) {
-  const limpo = numeroBruto.replace(/\D/g, \'\');
+  const limpo = numeroBruto.replace(/\D/g, '');
   let normalizado = limpo;
-  if (limpo.startsWith(\'55\') && limpo.length === 12) {
-    normalizado = limpo.slice(0, 4) + \'9\' + limpo.slice(4);
+  if (limpo.startsWith('55') && limpo.length === 12) {
+    normalizado = limpo.slice(0, 4) + '9' + limpo.slice(4);
   }
   return normalizado;
 }
