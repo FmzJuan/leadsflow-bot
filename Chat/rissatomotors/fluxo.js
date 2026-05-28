@@ -61,7 +61,7 @@ async function executar(sock, msg, io, clienteId) {
             return;
         }
 
-        // Processa o fluxo normal de capturar nota NPS
+        // Processa o fluxo normal de capturar nota NPS (0 a 6 ou 7 a 10)
         await processarFluxoNormal(sock, from, textoOriginal, statusAtual, io, clienteId);
 
     } catch (error) {
@@ -93,27 +93,34 @@ async function processarFluxoNormal(sock, from, texto, statusAtual, io, clienteI
             }
 
             const nota = parseInt(matchNota[0], 10);
-            const proximaFase = (nota >= 0 && nota <= 6) ? 'aguardando_feedback_ruim' : 'atendimento_manual';
             
-            // FILTRO MULTI-TENANT: Atualiza apenas o status desta oficina
-            await query("UPDATE clientes SET status = $1, atualizado_em = CURRENT_TIMESTAMP WHERE cliente_id = $2 AND whatsapp_id = $3", [proximaFase, clienteId, from]);
-
-            await sock.sendPresenceUpdate('composing', from);
-            await new Promise(resolve => setTimeout(resolve, 2000));
-
+            // Árvore de Decisão baseada na Nota
             if (nota >= 0 && nota <= 6) {
+                // OPÇÃO 1: NOTA RUIM (0 a 6) -> Vai pedir feedback
+                await query("UPDATE clientes SET status = 'aguardando_feedback_ruim', atualizado_em = CURRENT_TIMESTAMP WHERE cliente_id = $1 AND whatsapp_id = $2", [clienteId, from]);
+
+                await sock.sendPresenceUpdate('composing', from);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+
                 const perguntaRuim = mensagemAleatoria(respostasNPS.detrator_pergunta);
-                await sock.sendMessage(from, { text: preguntaRuim });
-                enviarLogFront(io, clienteId, `📤 Bot enviou: "Pergunta Feedback Detrator"`, 'success', metaInfo);
+                await sock.sendMessage(from, { text: perguntaRuim });
+                enviarLogFront(io, clienteId, `📤 Bot enviou: "Pergunta Feedback Detrator" (Nota ${nota})`, 'success', metaInfo);
             } else {
+                // OPÇÃO 2: NOTA BOA (7 a 10) -> Envia link do Google e encerra o bot direcionando para o humano
+                await query("UPDATE clientes SET status = 'atendimento_manual', atualizado_em = CURRENT_TIMESTAMP WHERE cliente_id = $1 AND whatsapp_id = $2", [clienteId, from]);
+
+                await sock.sendPresenceUpdate('composing', from);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+
                 await sock.sendMessage(from, { text: respostasNPS.promotor_agradecimento });
-                enviarLogFront(io, clienteId, `📤 Bot enviou: "Agradecimento Promotor + Link Google"`, 'success', metaInfo);
+                enviarLogFront(io, clienteId, `📤 Bot enviou: "Agradecimento Promotor + Link Google" (Nota ${nota})`, 'success', metaInfo);
             }
             return;
         }
 
+        // Se o cliente tirou nota ruim e acabou de mandar o texto explicando o motivo:
         if (statusAtual === 'aguardando_feedback_ruim') {
-            // FILTRO MULTI-TENANT
+            // Finaliza o fluxo e passa para atendimento manual
             await query("UPDATE clientes SET status = 'atendimento_manual', atualizado_em = CURRENT_TIMESTAMP WHERE cliente_id = $1 AND whatsapp_id = $2", [clienteId, from]);
 
             await sock.sendPresenceUpdate('composing', from);
@@ -122,7 +129,7 @@ async function processarFluxoNormal(sock, from, texto, statusAtual, io, clienteI
             const textoFinal = mensagemAleatoria(respostasNPS.detrator_encerramento);
             await sock.sendMessage(from, { text: textoFinal });
 
-            enviarLogFront(io, clienteId, `📤 Bot enviou: "Agradecimento Encerramento Detrator"`, 'success', metaInfo);
+            enviarLogFront(io, clienteId, `📤 Bot enviou: "Agradecimento Encerramento Detrator" (Feedback recebido)`, 'success', metaInfo);
             return;
         }
 
