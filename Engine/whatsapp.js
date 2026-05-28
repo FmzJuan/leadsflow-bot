@@ -16,6 +16,9 @@ const sessions = new Map();
 const workersAtivos = new Set();
 const sessionStores = new Map();
 
+// Guarda referência ao onMessage de cada cliente para reprocessamento de pendentes
+const onMessageHandlers = new Map();
+
 function criarContactStore() {
     const contacts = {};
 
@@ -77,10 +80,63 @@ async function resolverLID(lid, msg, sock) {
         console.error(`[resolverLID] Erro banco (lid salvo) para ${lid}:`, e.message);
     }
 
-    // ❌ 5️⃣ O PASSO 5 (FALLBACK DE ADIVINHAÇÃO POR LIMIT 1) FOI REMOVIDO DAQUI
-    // Isso evita 100% o risco de dar a resposta da Amanda para o João na fila concorrente.
-    // Se o bot não tiver certeza absoluta de quem é o LID, ele retorna null com segurança.
+    // ❌ Fallback de adivinhação removido — evita cruzamento de mensagens entre clientes
     return null;
+}
+
+// ✅ Salva mensagem no Redis + Postgres quando o LID não pôde ser resolvido
+async function salvarLidPendente(lid, clienteId, msg) {
+    const texto = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+    const payload = JSON.stringify({ texto, clienteId, timestamp: Date.now() });
+
+    // Redis com TTL de 2h (tempo suficiente para o contacts.upsert disparar)
+    await redis.set(`lid_pendente:${lid}`, payload, 'EX', 7200);
+
+    // Postgres para persistência além do TTL e visibilidade operacional
+    try {
+        await query(
+            `INSERT INTO lid_pendentes (lid, cliente_id, texto, criado_em)
+             VALUES ($1, $2, $3, NOW())
+             ON CONFLICT (lid) DO UPDATE SET texto = $3, criado_em = NOW()`,
+            [lid, clienteId, texto]
+        );
+    } catch (e) {
+        // Tabela pode não existir ainda — não quebra o fluxo
+        console.warn(`[LID Pendente] Aviso ao salvar no banco: ${e.message}`);
+    }
+}
+
+// ✅ Tenta reprocessar mensagem pendente após o LID ser resolvido pelo contacts.upsert
+async function reprocessarLidPendente(lid, jidResolvido, sock, clienteId) {
+    const raw = await redis.get(`lid_pendente:${lid}`);
+    if (!raw) return;
+
+    let payload;
+    try {
+        payload = JSON.parse(raw);
+    } catch {
+        return;
+    }
+
+    // Remove do Redis imediatamente para evitar duplo processamento
+    await redis.del(`lid_pendente:${lid}`);
+
+    // Remove do Postgres também
+    try {
+        await query(`DELETE FROM lid_pendentes WHERE lid = $1`, [lid]);
+    } catch { /* ignora */ }
+
+    const onMessage = onMessageHandlers.get(clienteId);
+    if (!onMessage) return;
+
+    // Reconstrói a mensagem no formato que o onMessage espera
+    const msgFake = {
+        key: { remoteJid: jidResolvido, fromMe: false },
+        message: { conversation: payload.texto }
+    };
+
+    console.log(`[LID Pendente] ✅ Reprocessando mensagem de ${jidResolvido}: "${payload.texto}"`);
+    await onMessage(clienteId, sock, msgFake);
 }
 
 function extrairNumeroDoJid(jid) {
@@ -93,6 +149,9 @@ function ultimosDigitos(numStr, n = 8) {
 
 async function connectToWhatsApp(clienteId, onMessage, onWorker) {
     const { io } = require('../index'); 
+
+    // Guarda referência ao handler para uso no reprocessamento
+    onMessageHandlers.set(clienteId, onMessage);
 
     const { version } = await fetchLatestBaileysVersion();
     console.log(`- Iniciando WhatsApp para Cliente ID: ${clienteId} (v${version.join('.')})`);
@@ -108,7 +167,7 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
     const sock = makeWASocket({
         version,
         auth: state,
-        printQRInTerminal: false, // ✅ Remove warning de deprecated
+        printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
         browser: [`LeadsFlow - Cliente ${clienteId}`, "Chrome", "120.0"], 
         markOnlineOnConnect: true,
@@ -135,6 +194,7 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
                 sessions.delete(clienteId);
                 workersAtivos.delete(clienteId);
                 sessionStores.delete(clienteId);
+                onMessageHandlers.delete(clienteId);
 
                 if (fs.existsSync(authPath)) {
                     fs.rmSync(authPath, { recursive: true, force: true });
@@ -161,27 +221,27 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // ✅ Salva mapeamento LID->JID no Redis e no banco ao receber/sincronizar contatos
+    // ✅ Salva mapeamento LID->JID e reprocessa pendentes
     sock.ev.on('contacts.upsert', async (contacts) => {
         for (const contact of contacts) {
             if (contact.lid && contact.id && !contact.id.endsWith('@lid')) {
                 const jidLimpo = `${contact.id.split('@')[0].replace(/\D/g, '')}@s.whatsapp.net`;
                 
-                // Salva no cache rápido do Redis
+                // Salva no Redis
                 await redis.set(`lid:${contact.lid}`, jidLimpo, 'EX', 604800);
-                console.log(`[Contacts Upsert] Mapeado com sucesso: ${contact.lid} -> ${jidLimpo}`);
+                console.log(`[Contacts Upsert] Mapeado: ${contact.lid} -> ${jidLimpo}`);
                 
-                // Garante a gravação retroativa no Postgres para consultas futuras (Passo 4)
+                // Atualiza o banco com o LID descoberto
                 try {
-                    const numero = contact.id.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-                    // Busca pelo número usando os últimos 8 dígitos para evitar conflitos de 9º dígito
-                    const finalNumero = numero.slice(-8);
-                    
+                    const finalNumero = jidLimpo.replace('@s.whatsapp.net', '').slice(-8);
                     await query(
                         `UPDATE leads SET lid = $1 WHERE celular LIKE $2 AND (lid IS NULL OR lid = '')`,
                         [contact.lid, `%${finalNumero}`]
                     );
-                } catch (e) { /* ignora erros de concorrência de banco */ }
+                } catch (e) { /* ignora erros de concorrência */ }
+
+                // ✅ Verifica e reprocessa mensagem pendente para esse LID
+                await reprocessarLidPendente(contact.lid, jidLimpo, sock, clienteId);
             }
         }
     });
@@ -208,10 +268,13 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
                     type: 'success' 
                 });
             } else {
+                // ✅ Salva como pendente — será reprocessado quando contacts.upsert resolver
+                await salvarLidPendente(lidOriginal, clienteId, msg);
+
                 io.emit(`new-log-${clienteId}`, { 
                     meta: `Sistema (LID Mapper)`,
-                    msg: `⚠️ Não foi possível resolver LID: ${lidOriginal}`, 
-                    type: 'error' 
+                    msg: `⏳ LID não resolvido, salvo como pendente: ${lidOriginal}`, 
+                    type: 'warning' 
                 });
                 return;
             }
