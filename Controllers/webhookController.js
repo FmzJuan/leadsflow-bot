@@ -1,4 +1,5 @@
-const { query } = require('../DataBase/conection');
+const { query } = require(\'../DataBase/conection\');
+const { normalizarJid, normalizarNumero } = require(\'../utils/formatador\');
 const { salvarNoSheets } = require('../Functions/googleSheets');
 
 async function processarDadosERP(req, res) {
@@ -18,22 +19,22 @@ async function processarDadosERP(req, res) {
             // 1. Cancela retornos antigos no banco
             await query(`
                 UPDATE leads SET status_envio = 'cancelado_retorno', atualizado_em = CURRENT_TIMESTAMP
-                WHERE celular = $1 AND cliente_id = $2 AND tipo_envio = 'retorno_6meses' AND status_envio = 'pendente'
-            `, [lead.celular, clienteId]); // ✅ Parâmetros adicionados
+                WHERE whatsapp_id = $1 AND cliente_id = $2 AND tipo_envio = \'retorno_6meses\' AND status_envio = \'pendente\'
+            `, [normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`), clienteId]); // ✅ Parâmetros adicionados
 
             // 2. Insere 24h no banco
             await query(`
-                INSERT INTO leads (cliente_id, nome, celular, veiculo, data_saida, tipo_envio, data_agendada, status_envio)
-                VALUES ($1, $2, $3, $4, $5, 'pos_venda_24h', $6, 'pendente')
-                ON CONFLICT (cliente_id, celular, tipo_envio, data_saida) DO NOTHING;
-            `, [clienteId, lead.nome, lead.celular, lead.veiculo, lead.data_saida, data24h]); // ✅ Parâmetros adicionados
+                INSERT INTO leads (cliente_id, nome, whatsapp_id, veiculo, data_saida, tipo_envio, data_agendada, status_envio)
+                VALUES ($1, $2, $3, $4, $5, \'pos_venda_24h\', $6, \'pendente\')
+                ON CONFLICT (cliente_id, whatsapp_id, tipo_envio, data_saida) DO NOTHING;
+            `, [clienteId, lead.nome, normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`), lead.veiculo, lead.data_saida, data24h]); // ✅ Parâmetros adicionados
 
             // 3. Insere 6 Meses no banco
             await query(`
-                INSERT INTO leads (cliente_id, nome, celular, veiculo, data_saida, tipo_envio, data_agendada, status_envio)
-                VALUES ($1, $2, $3, $4, $5, 'retorno_6meses', $6, 'pendente')
-                ON CONFLICT (cliente_id, celular, tipo_envio, data_saida) DO NOTHING;
-            `, [clienteId, lead.nome, lead.celular, lead.veiculo, lead.data_saida, data6Meses]); // ✅ Parâmetros adicionados
+                INSERT INTO leads (cliente_id, nome, whatsapp_id, veiculo, data_saida, tipo_envio, data_agendada, status_envio)
+                VALUES ($1, $2, $3, $4, $5, \'retorno_6meses\', $6, \'pendente\')
+                ON CONFLICT (cliente_id, whatsapp_id, tipo_envio, data_saida) DO NOTHING;
+            `, [clienteId, lead.nome, normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`), lead.veiculo, lead.data_saida, data6Meses]); // ✅ Parâmetros adicionados
 
             // 4. ESPELHO: ENVIANDO PARA O GOOGLE SHEETS
             
@@ -41,7 +42,7 @@ async function processarDadosERP(req, res) {
             const linha24h = [
                 data24h.toLocaleDateString('pt-BR'), // Coluna A: Data
                 lead.nome,                           // Coluna B: Nome
-                lead.celular,                        // Coluna C: WhatsApp
+                normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`),                        // Coluna C: WhatsApp
                 'Pós-Venda 24h',                     // Coluna D: Serviço
                 'Pendente'                           // Coluna E: Status
             ];
@@ -50,7 +51,7 @@ async function processarDadosERP(req, res) {
             const linha6Meses = [
                 data6Meses.toLocaleDateString('pt-BR'), // Coluna A: Data
                 lead.nome,                              // Coluna B: Nome
-                lead.celular,                           // Coluna C: WhatsApp
+                normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`),                           // Coluna C: WhatsApp
                 'Retorno 6 Meses',                      // Coluna D: Serviço
                 'Pendente'                              // Coluna E: Status
             ];

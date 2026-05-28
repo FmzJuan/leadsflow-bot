@@ -1,148 +1,127 @@
-// Chat/RissatoMotors/fluxo.js
+const { query } = require(\'../../DataBase/conection\');
+const { respostasNPS } = require(\'./mensagens\');
+const { normalizarJid } = require(\'../../utils/formatador\');
 
-const { query } = require('../../DataBase/conection');
-const { respostasNPS } = require('./mensagens');
-
-/**
- * FUNÇÃO NOVA: Sorteia uma mensagem dentro de um array para o bot não ficar repetitivo
- */
 function mensagemAleatoria(array) {
     if (Array.isArray(array)) {
         return array[Math.floor(Math.random() * array.length)];
     }
-    return array; // Se não for array, retorna o texto direto
+    return array;
 }
 
-// FUNÇÃO NOVA: Envia o log em tempo real para o Front-end
-function enviarLogFront(io, clienteId, msg, type = 'default', meta = '') {
+function enviarLogFront(io, clienteId, msg, type = \'default\', meta = \'\') {
     if (io && clienteId) {
         io.emit(`new-log-${clienteId}`, { msg, type, meta });
-        console.log(`[Front Log - ${type.toUpperCase()}] ${meta ? meta + ' - ' : ''}${msg}`);
+        console.log(`[Front Log - ${type.toUpperCase()}] ${meta ? meta + \' - \' : \'\'}${msg}`);
     } else {
         console.log(`[Terminal] ${msg}`);
     }
 }
 
-/**
- * SOLUÇÃO AVANÇADA: AGRUPAMENTO DE MENSAGENS (DEBOUNCE)
- */
-const timersAgrupamento = new Map(); // leadId -> NodeJS.Timeout
-const mensagensAcumuladas = new Map(); // leadId -> string[]
-
 async function executar(sock, msg, io, clienteId) {
-    const from = msg.key.remoteJid;
-    const textoOriginal = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || "").trim();
+    const from = normalizarJid(msg.key.remoteJid);
+    const textoOriginal = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || \"\").trim();
 
     if (!textoOriginal) return;
 
-    // 👇 AJUSTE: Pegar apenas os últimos 8 dígitos para a busca no banco
-    const numeroLimpo = from.replace(/\D/g, '');
-    const finalNumero = numeroLimpo.slice(-8);
-
     try {
-        // 👇 AJUSTE: Buscar no banco de dados usando apenas os últimos 8 dígitos
-        const result = await query(`
-            SELECT id, cliente_id, nome, fase_bot 
-            FROM leads 
-            WHERE celular LIKE $1 
-            ORDER BY id DESC 
-            LIMIT 1
-        `, [`%${finalNumero}%`]);
+        const res = await query("SELECT status FROM clientes WHERE whatsapp_id = $1", [from]);
         
-        const lead = result.rows[0];
+        if (res.rowCount === 0) {
+            await query("INSERT INTO clientes (whatsapp_id, status) VALUES ($1, \'inicio\')", [from]);
+            enviarLogFront(io, clienteId, `📥 Novo cliente [${from}] registrado com status 'inicio'.`, \'info\');
+            // Aqui você chamaria a função para enviar o menu principal, por exemplo:
+            // return enviarMenuPrincipal(sock, from);
+            return;
+        }
 
-        if (!lead || (lead.fase_bot !== 'aguardando_nps' && lead.fase_bot !== 'aguardando_feedback_ruim')) {
+        const statusAtual = res.rows[0].status;
+        enviarLogFront(io, clienteId, `📥 Mensagem de [${from}] com status '${statusAtual}'.`, \'info\');
+
+        if (statusAtual === \'atendimento_manual\') {
+            enviarLogFront(io, clienteId, `🚫 Cliente [${from}] em atendimento manual, ignorando mensagem.`, \'warning\');
+            return;
+        }
+
+        if (statusAtual === \'pos_vendas_enviado\') {
+            await sock.sendMessage(from, { 
+                text: \"Obrigado pelo seu retorno! Recebemos sua resposta sobre o pós-vendas e um de nossos agentes vai analisar. Deseja falar com o suporte agora?\" 
+            });
+            await query("UPDATE clientes SET status = \'atendimento_manual\' WHERE whatsapp_id = $1", [from]);
+            enviarLogFront(io, clienteId, `📤 Resposta de pós-vendas enviada para [${from}]. Status atualizado para 'atendimento_manual'.`, \'success\');
             return; 
         }
 
-        const mensagens = mensagensAcumuladas.get(lead.id) || [];
-        mensagens.push(textoOriginal);
-        mensagensAcumuladas.set(lead.id, mensagens);
-
-        if (timersAgrupamento.has(lead.id)) {
-            clearTimeout(timersAgrupamento.get(lead.id));
-            enviarLogFront(io, clienteId, `⏳ [${lead.nome}]-[${numeroLimpo}] enviou mais mensagens. Agrupando...`, 'default');
-        } else { 
-            enviarLogFront(io, clienteId, `📥 Nova interaçao de [${lead.nome}]-[${numeroLimpo}]->Iniciando leitura`, 'default');
-        }
-
-        const tempoEspera = 30000; // 30 segundos
-        const timer = setTimeout(async () => {
-            const mensagensParaProcessar = mensagensAcumuladas.get(lead.id);
-            timersAgrupamento.delete(lead.id);
-            mensagensAcumuladas.delete(lead.id);
-            
-            await processarFluxoAgrupado(sock, from, lead, mensagensParaProcessar, io, clienteId);
-        }, tempoEspera);
-
-        timersAgrupamento.set(lead.id, timer);
+        // Se não for nenhum dos casos acima, processa o fluxo normal do bot
+        await processarFluxoNormal(sock, from, textoOriginal, statusAtual, io, clienteId);
 
     } catch (error) {
-        console.error(`[Fluxo] Erro ao iniciar agrupamento para ${from}:`, error);
-        enviarLogFront(io, clienteId, `❌ Erro ao processar mensagens de [${from}]: ${error.message}`, 'error');
+        console.error(`[Fluxo] Erro ao processar mensagem para ${from}:`, error);
+        enviarLogFront(io, clienteId, `❌ Erro ao processar mensagens de [${from}]: ${error.message}`, \'error\');
     }
 }
 
-async function processarFluxoAgrupado(sock, from, lead, mensagens, io, clienteId) {
-    const textoCompleto = mensagens.join(" | ");
-    const numeroLimpo = from.replace(/\D/g, '');
-    const metaInfo = `${lead.nome} (${numeroLimpo})`;
+async function processarFluxoNormal(sock, from, texto, statusAtual, io, clienteId) {
+    const metaInfo = `(${from})`;
+    enviarLogFront(io, clienteId, `🚀 Analisando mensagem de ${from}...`, \'default\', metaInfo);
 
-    enviarLogFront(io, clienteId, `🚀 Analisando bloco de mensagens de ${lead.nome}...`, 'default', metaInfo);
-    
     try {
-        if (lead.fase_bot === 'aguardando_feedback_ruim') {
-            await query("UPDATE leads SET fase_bot = 'pausado_humano', atualizado_em = CURRENT_TIMESTAMP WHERE id = $1", [lead.id]);
+        // Lógica original do fluxo, adaptada para usar o status do banco
+        // e o JID normalizado. Exemplo com base no que foi fornecido:
 
-            await sock.sendPresenceUpdate('composing', from);
+        if (statusAtual === \'aguardando_feedback_ruim\') {
+            await query("UPDATE clientes SET status = \'pausado_humano\', atualizado_em = CURRENT_TIMESTAMP WHERE whatsapp_id = $1", [from]);
+
+            await sock.sendPresenceUpdate(\'composing\', from);
             await new Promise(resolve => setTimeout(resolve, 3000));
             
             const textoFinal = mensagemAleatoria(respostasNPS.detrator_encerramento);
             await sock.sendMessage(from, { text: textoFinal });
 
-            enviarLogFront(io, clienteId, `📤 Bot enviou: "Agradecimento Feedback"`, 'success', metaInfo);
+            enviarLogFront(io, clienteId, `📤 Bot enviou: \"Agradecimento Feedback\"`, \'success\', metaInfo);
 
-            console.log(`[Fluxo] ${lead.nome} finalizado -> pausado_humano.`);
+            console.log(`[Fluxo] ${from} finalizado -> pausado_humano.`);
             return;
         }
 
-        if (lead.fase_bot === 'aguardando_nps') {
-            const todasAsPalavras = textoCompleto.split(/\s+|\|/);
-            const notaEncontrada = todasAsPalavras.find(p => /^\d+$/.test(p));
+        if (statusAtual === \'aguardando_nps\') {
+            const todasAsPalavras = texto.split(/\s+|\|/);
+            const notaEncontrada = todasAsPalavras.find(p => /^\\d+$/.test(p));
 
             if (!notaEncontrada) {
-                await sock.sendMessage(from, { text: "Por favor, responda essa mensagem com números apenas para que eu possa entender sua nota." });
+                await sock.sendMessage(from, { text: \"Por favor, responda essa mensagem com números apenas para que eu possa entender sua nota.\" });
                 return; 
             }
 
             const nota = parseInt(notaEncontrada, 10);
 
             if (nota < 0 || nota > 10) {
-                await sock.sendMessage(from, { text: "A nota precisa ser um numero entre 0 e 10. Como foi sua experiencia?" });
+                await sock.sendMessage(from, { text: \"A nota precisa ser um numero entre 0 e 10. Como foi sua experiencia?\" });
                 return;
             }
 
-            const proximaFase = (nota >= 0 && nota <= 6) ? 'aguardando_feedback_ruim' : 'inativo';
-            await query("UPDATE leads SET fase_bot = $1, atualizado_em = CURRENT_TIMESTAMP WHERE id = $2", [proximaFase, lead.id]);
+            const proximaFase = (nota >= 0 && nota <= 6) ? \'aguardando_feedback_ruim\' : \'inativo\';
+            await query("UPDATE clientes SET status = $1, atualizado_em = CURRENT_TIMESTAMP WHERE whatsapp_id = $2", [proximaFase, from]);
 
-            await sock.sendPresenceUpdate('composing', from);
+            await sock.sendPresenceUpdate(\'composing\', from);
             await new Promise(resolve => setTimeout(resolve, 2000));
 
             if (nota >= 0 && nota <= 6) {
                 const perguntaRuim = mensagemAleatoria(respostasNPS.detrator_pergunta);
                 await sock.sendMessage(from, { text: perguntaRuim });
                 
-                enviarLogFront(io, clienteId, `📤 Bot enviou: "Pergunta Feedback Detrator"`, 'success', metaInfo);
+                enviarLogFront(io, clienteId, `📤 Bot enviou: \"Pergunta Feedback Detrator\"`, \'success\', metaInfo);
             } else {
                 await sock.sendMessage(from, { text: respostasNPS.promotor_agradecimento });
                 
-                enviarLogFront(io, clienteId, `📤 Bot enviou: "Agradecimento Promotor + Link Google"`, 'success', metaInfo);
+                enviarLogFront(io, clienteId, `📤 Bot enviou: \"Agradecimento Promotor + Link Google\"`, \'success\', metaInfo);
             }
             
-            console.log(`[Fluxo] ${lead.nome} deu nota ${nota}. Próxima fase: ${proximaFase}`);
+            console.log(`[Fluxo] ${from} deu nota ${nota}. Próxima fase: ${proximaFase}`);
         }
     } catch (error) {
-        console.error(`[Fluxo] Erro ao processar bloco de ${lead.nome}:`, error);
+        console.error(`[Fluxo] Erro ao processar fluxo normal para ${from}:`, error);
+        enviarLogFront(io, clienteId, `❌ Erro ao processar fluxo normal de [${from}]: ${error.message}`, \'error\');
     }
 }
 
