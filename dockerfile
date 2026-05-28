@@ -1,21 +1,20 @@
 # ESTÁGIO 1: Builder
-FROM node:20-slim AS builder  
+FROM node:20-slim AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm install --omit=dev
 
 # ESTÁGIO 2: Final
 FROM node:20-slim
 WORKDIR /app
 
-# Configuração para evitar travamentos no apt-get
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Adicionado wget para o Health Check e mantido as libs para o Puppeteer/Baileys
+# wget para healthcheck, ffmpeg para mídia (Baileys), Chromium + libs para Puppeteer (ERP)
 RUN apt-get update && apt-get install -y \
     wget \
-    chromium \
     ffmpeg \
+    chromium \
     libnss3 \
     libatk-bridge2.0-0 \
     libxcomposite1 \
@@ -29,7 +28,6 @@ RUN apt-get update && apt-get install -y \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Configurações do Puppeteer para usar o Chromium do sistema (mais estável em Linux)
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 

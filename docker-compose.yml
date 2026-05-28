@@ -3,39 +3,51 @@ version: '3.8'
 services:
   db:
     image: postgres:15
-    container_name: postgres_ledsflow
+    container_name: postgres_leadsflow
     restart: always
     environment:
       POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASS} 
+      POSTGRES_PASSWORD: ${DB_PASS}
       POSTGRES_DB: ${DB_NAME}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./DataBase/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: redis_ledsflow
+    container_name: redis_leadsflow
     restart: always
     command: redis-server --save 60 1 --loglevel warning
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   app:
     build: .
-    container_name: ledsflow
+    container_name: leadsflow
     restart: always
     expose:
       - "3000"
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
-      - ledsflow_sessions:/app/sessions
+      - leadsflow_sessions:/app/sessions
     environment:
       - NODE_ENV=production
       - SESSION_SECRET=${SESSION_SECRET}
@@ -44,7 +56,7 @@ services:
       - DB_PASS=${DB_PASS}
       - DB_NAME=${DB_NAME}
       - REDIS_HOST=redis
-    # ADICIONADO: O "Médico" do sistema agora usa o wget que instalamos no Dockerfile
+      - NUMEROS_PERMITIDOS=${NUMEROS_PERMITIDOS}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
       interval: 30s
@@ -52,8 +64,20 @@ services:
       retries: 3
       start_period: 40s
 
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower_leadsflow
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_POLL_INTERVAL=30
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_STOPPED=false
+    command: leadsflow
+
 volumes:
   postgres_data:
   redis_data:
-  ledsflow_sessions:
-    name: ledsflow_sessions
+  leadsflow_sessions:
+    name: leadsflow_sessions
