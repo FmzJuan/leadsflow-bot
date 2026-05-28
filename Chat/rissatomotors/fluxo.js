@@ -18,43 +18,50 @@ function enviarLogFront(io, clienteId, msg, type = 'default', meta = '') {
     }
 }
 
-async function ejecutar(sock, msg, io, clienteId) {
+async function executar(sock, msg, io, clienteId) {
     const from = normalizarJid(msg.key.remoteJid);
     const textoOriginal = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || "").trim();
 
     if (!textoOriginal) return;
 
     try {
-        const res = await query("SELECT status FROM clientes WHERE whatsapp_id = $1", [from]);
+        // FILTRO MULTI-TENANT: Busca o status relacionando a Oficina (clienteId) com o Número (from)
+        const res = await query("SELECT status FROM clientes WHERE cliente_id = $1 AND whatsapp_id = $2", [clienteId, from]);
         
-        // Se o cliente não existe no banco de dados do bot, registra ele
+        // Se o cliente não existe no banco para esta oficina, registra
         if (res.rowCount === 0) {
-            await query("INSERT INTO clientes (whatsapp_id, status) VALUES ($1, 'inicio')", [from]);
+            await query("INSERT INTO clientes (cliente_id, whatsapp_id, status) VALUES ($1, $2, 'inicio')", [clienteId, from]);
             enviarLogFront(io, clienteId, `📥 Novo cliente [${from}] registrado com status 'inicio'.`, 'info');
+            await tratarMensagemForaDeFluxo(sock, from, clienteId, io);
             return;
         }
 
         const statusAtual = res.rows[0].status;
         enviarLogFront(io, clienteId, `📥 Mensagem de [${from}] com status '${statusAtual}'.`, 'info');
 
-        // Se o cliente já está em atendimento manual ou pausado para humano, ignora completamente
+        // Se está em atendimento humano, o bot não responde nada
         if (statusAtual === 'atendimento_manual' || statusAtual === 'pausado_humano') {
             enviarLogFront(io, clienteId, `🚫 Cliente [${from}] em atendimento manual, ignorando mensagem.`, 'warning');
             return;
         }
 
-        // Tratamento para o Pós-Venda de 5 meses (status 'enviado' vindo do worker)
-        // Como o de 5 meses não é NPS, se ele responder, jogamos direto para o atendimento humano
+        // Resposta para Pós-Venda de 5 meses (Vai direto para o humano)
         if (statusAtual === 'enviado') {
             await sock.sendMessage(from, { 
                 text: "Obrigado pelo seu retorno! Recebemos sua mensagem e um de nossos consultores vai prosseguir com o seu atendimento em instantes." 
             });
-            await query("UPDATE clientes SET status = 'atendimento_manual', atualizado_em = CURRENT_TIMESTAMP WHERE whatsapp_id = $1", [from]);
+            await query("UPDATE clientes SET status = 'atendimento_manual', atualizado_em = CURRENT_TIMESTAMP WHERE cliente_id = $1 AND whatsapp_id = $2", [clienteId, from]);
             enviarLogFront(io, clienteId, `📤 Resposta de 5 meses recebida de [${from}]. Transferido para 'atendimento_manual'.`, 'success');
             return;
         }
 
-        // Se o cliente não se enquadrar nos cortes acima, processa o fluxo de NPS/Feedback
+        // Evita o limbo: Se o cliente mandar mais mensagens com status 'inicio', trata como humana
+        if (statusAtual === 'inicio') {
+            await tratarMensagemForaDeFluxo(sock, from, clienteId, io);
+            return;
+        }
+
+        // Processa o fluxo normal de capturar nota NPS
         await processarFluxoNormal(sock, from, textoOriginal, statusAtual, io, clienteId);
 
     } catch (error) {
@@ -63,56 +70,51 @@ async function ejecutar(sock, msg, io, clienteId) {
     }
 }
 
+async function tratarMensagemForaDeFluxo(sock, from, clienteId, io) {
+    await sock.sendMessage(from, { 
+        text: "Olá! Recebemos sua mensagem. Um de nossos consultores já foi notificado e vai te atender em instantes." 
+    });
+    await query("UPDATE clientes SET status = 'atendimento_manual', atualizado_em = CURRENT_TIMESTAMP WHERE cliente_id = $1 AND whatsapp_id = $2", [clienteId, from]);
+    enviarLogFront(io, clienteId, `👤 Cliente [${from}] direcionado para 'atendimento_manual' (Mensagem espontânea).`, 'default');
+}
+
 async function processarFluxoNormal(sock, from, texto, statusAtual, io, clienteId) {
     const metaInfo = `(${from})`;
     enviarLogFront(io, clienteId, `🚀 Analisando mensagem de ${from}...`, 'default', metaInfo);
 
     try {
-        // AGORA SIM: Se o status for 'pos_vendas_enviado', capturamos a nota do NPS
         if (statusAtual === 'pos_vendas_enviado') {
-            const todasAsPalavras = texto.split(/\s+|\|/);
-            const notaEncontrada = todasAsPalavras.find(p => /^\d+$/.test(p));
+            // Regex inteligente para isolar números de 0 a 10 mesmo colados com caracteres especiais
+            const matchNota = texto.match(/\b([0-9]|10)\b/);
 
-            // Se o cliente mandou texto mas nenhuma nota em número
-            if (!notaEncontrada) {
+            if (!matchNota) {
                 await sock.sendMessage(from, { text: "Por favor, responda essa mensagem apenas com um número de 0 a 10 para que eu possa entender sua nota." });
                 return; 
             }
 
-            const nota = parseInt(notaEncontrada, 10);
-
-            // Validação de intervalo da nota
-            if (nota < 0 || nota > 10) {
-                await sock.sendMessage(from, { text: "A nota precisa ser um número entre 0 e 10. Como foi sua experiência?" });
-                return;
-            }
-
-            // Define o próximo passo: 
-            // Notas de 0 a 6 -> Vai para 'aguardando_feedback_ruim' (solicitar justificativa)
-            // Notas de 7 a 10 -> Promotor/Neutro, envia agradecimento e finaliza enviando para o painel humano ('atendimento_manual')
+            const nota = parseInt(matchNota[0], 10);
             const proximaFase = (nota >= 0 && nota <= 6) ? 'aguardando_feedback_ruim' : 'atendimento_manual';
-            await query("UPDATE clientes SET status = $1, atualizado_em = CURRENT_TIMESTAMP WHERE whatsapp_id = $2", [proximaFase, from]);
+            
+            // FILTRO MULTI-TENANT: Atualiza apenas o status desta oficina
+            await query("UPDATE clientes SET status = $1, atualizado_em = CURRENT_TIMESTAMP WHERE cliente_id = $2 AND whatsapp_id = $3", [proximaFase, clienteId, from]);
 
             await sock.sendPresenceUpdate('composing', from);
             await new Promise(resolve => setTimeout(resolve, 2000));
 
             if (nota >= 0 && nota <= 6) {
                 const perguntaRuim = mensagemAleatoria(respostasNPS.detrator_pergunta);
-                await sock.sendMessage(from, { text: perguntaRuim });
+                await sock.sendMessage(from, { text: preguntaRuim });
                 enviarLogFront(io, clienteId, `📤 Bot enviou: "Pergunta Feedback Detrator"`, 'success', metaInfo);
             } else {
                 await sock.sendMessage(from, { text: respostasNPS.promotor_agradecimento });
                 enviarLogFront(io, clienteId, `📤 Bot enviou: "Agradecimento Promotor + Link Google"`, 'success', metaInfo);
             }
-            
-            console.log(`[Fluxo] ${from} deu nota ${nota}. Próxima fase: ${proximaFase}`);
             return;
         }
 
-        // Se o status for 'aguardando_feedback_ruim', significa que ele já deu a nota baixa e agora mandou o texto explicando o motivo
         if (statusAtual === 'aguardando_feedback_ruim') {
-            // Atualiza para atendimento_manual para os operadores verem o problema e assumirem
-            await query("UPDATE clientes SET status = 'atendimento_manual', atualizado_em = CURRENT_TIMESTAMP WHERE whatsapp_id = $1", [from]);
+            // FILTRO MULTI-TENANT
+            await query("UPDATE clientes SET status = 'atendimento_manual', atualizado_em = CURRENT_TIMESTAMP WHERE cliente_id = $1 AND whatsapp_id = $2", [clienteId, from]);
 
             await sock.sendPresenceUpdate('composing', from);
             await new Promise(resolve => setTimeout(resolve, 3000));
@@ -121,7 +123,6 @@ async function processarFluxoNormal(sock, from, texto, statusAtual, io, clienteI
             await sock.sendMessage(from, { text: textoFinal });
 
             enviarLogFront(io, clienteId, `📤 Bot enviou: "Agradecimento Encerramento Detrator"`, 'success', metaInfo);
-            console.log(`[Fluxo] ${from} justificou a nota baixa. Finalizado e enviado para atendimento_manual.`);
             return;
         }
 

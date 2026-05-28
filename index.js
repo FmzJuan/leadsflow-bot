@@ -19,14 +19,11 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-module.exports = { io };
-
 // --- CONFIGURAÇÕES GLOBAIS ---
 app.set('view engine', 'ejs');
 app.set('trust proxy', 1);
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ✅ CORRIGIDO: cada middleware em sua própria linha, sem concatenação
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(sessionConfig);
@@ -47,8 +44,27 @@ io.on('connection', (socket) => {
     console.log(`📊 Dashboard conectada ao servidor via Socket.io`);
 });
 
+// --- FUNÇÃO AUXILIAR PARA AUTO-MIGRAÇÃO DO BANCO ---
+async function verificarEInicializarBanco() {
+    try {
+        const sqlPath = path.join(__dirname, 'DataBase', 'init.sql');
+        
+        if (fs.existsSync(sqlPath)) {
+            const sqlConteudo = fs.readFileSync(sqlPath, 'utf8');
+            await query(sqlConteudo);
+            console.log("🗄️ [Banco de Dados] Tabelas e sementes checadas/criadas com sucesso!");
+        } else {
+            console.warn("⚠️ [Banco de Dados] Arquivo init.sql não encontrado para auto-inicialização.");
+        }
+    } catch (err) {
+        console.error("❌ [Banco de Dados] Erro crítico ao executar o init.sql:", err);
+    }
+}
+
 // --- FUNÇÃO PRINCIPAL DO BOT ---
 async function start() {
+    await verificarEInicializarBanco();
+
     console.log("🚀 LeadsFlow SaaS: Buscando clientes ativos...");
     try {
         const result = await query("SELECT id, nome_oficina, subdominio FROM clientes_config WHERE status_assinatura = 'ativo'");
@@ -76,7 +92,8 @@ async function start() {
                 const fluxoPath = path.join(__dirname, 'Chat', cliente.subdominio, 'fluxo.js');
                 if (fs.existsSync(fluxoPath)) {
                     const fluxoCliente = require(fluxoPath);
-                    await fluxoCliente.executar(sock, msg, io, clienteId);                }
+                    await fluxoCliente.executar(sock, msg, io, clienteId);
+                }
             }, iniciarWorker);
         }
     } catch (err) {
@@ -125,4 +142,5 @@ if (process.env.NODE_ENV !== 'test') {
     }, { timezone: "America/Sao_Paulo" });
 }
 
+// ✅ APENAS UMA EXPORTAÇÃO COMPLETA NO FINAL DO ARQUIVO
 module.exports = { app, server, io, start };
