@@ -45,8 +45,9 @@ async function resolverLID(lid, msg, sock) {
     // 2️⃣ Campo participant da mensagem
     const participantMsg = msg.participant || msg.key?.participant;
     if (participantMsg && !participantMsg.endsWith('@lid')) {
-        await redis.set(`lid:${lid}`, participantMsg, 'EX', 604800);
-        return participantMsg;
+        const jidLimpo = participantMsg.replace(/:\d+@/, '@');
+        await redis.set(`lid:${lid}`, jidLimpo, 'EX', 604800);
+        return jidLimpo;
     }
 
     // 3️⃣ Store em memória desta sessão
@@ -60,7 +61,7 @@ async function resolverLID(lid, msg, sock) {
         }
     }
 
-    // 4️⃣ Banco de dados — campo lid já salvo
+    // 4️⃣ Banco de dados — campo lid já salvo anteriormente
     try {
         const result = await query(
             `SELECT celular FROM leads WHERE lid = $1 LIMIT 1`,
@@ -76,32 +77,9 @@ async function resolverLID(lid, msg, sock) {
         console.error(`[resolverLID] Erro banco (lid salvo) para ${lid}:`, e.message);
     }
 
-    // 5️⃣ FALLBACK — busca lead aguardando resposta que ainda não tem LID mapeado
-    // Essencial para o primeiro contato após envio da mensagem de NPS
-    try {
-        const resultFallback = await query(
-            `SELECT id, celular FROM leads 
-             WHERE (lid IS NULL OR lid = '') 
-             AND status_envio = 'enviado' 
-             AND fase_bot IN ('aguardando_nps', 'aguardando_feedback_ruim')
-             ORDER BY atualizado_em DESC LIMIT 1`,
-            []
-        );
-        if (resultFallback.rows[0]) {
-            const lead = resultFallback.rows[0];
-            const celularLimpo = lead.celular.replace(/\D/g, '');
-            const jidFallback = `${celularLimpo}@s.whatsapp.net`;
-
-            await redis.set(`lid:${lid}`, jidFallback, 'EX', 604800);
-            await query(`UPDATE leads SET lid = $1 WHERE id = $2`, [lid, lead.id]);
-
-            console.log(`[LID Mapper] 🎯 Fallback: Mapeado LID ${lid} -> Lead ${lead.id} (${celularLimpo})`);
-            return jidFallback;
-        }
-    } catch (e) {
-        console.error(`[resolverLID] Erro banco (fallback) para ${lid}:`, e.message);
-    }
-
+    // ❌ 5️⃣ O PASSO 5 (FALLBACK DE ADIVINHAÇÃO POR LIMIT 1) FOI REMOVIDO DAQUI
+    // Isso evita 100% o risco de dar a resposta da Amanda para o João na fila concorrente.
+    // Se o bot não tiver certeza absoluta de quem é o LID, ele retorna null com segurança.
     return null;
 }
 
@@ -183,20 +161,27 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // ✅ Salva mapeamento LID->JID no Redis e no banco ao receber contatos
+    // ✅ Salva mapeamento LID->JID no Redis e no banco ao receber/sincronizar contatos
     sock.ev.on('contacts.upsert', async (contacts) => {
         for (const contact of contacts) {
             if (contact.lid && contact.id && !contact.id.endsWith('@lid')) {
                 const jidLimpo = `${contact.id.split('@')[0].replace(/\D/g, '')}@s.whatsapp.net`;
+                
+                // Salva no cache rápido do Redis
                 await redis.set(`lid:${contact.lid}`, jidLimpo, 'EX', 604800);
-                console.log(`[Contacts Upsert] Mapeado: ${contact.lid} -> ${jidLimpo}`);
+                console.log(`[Contacts Upsert] Mapeado com sucesso: ${contact.lid} -> ${jidLimpo}`);
+                
+                // Garante a gravação retroativa no Postgres para consultas futuras (Passo 4)
                 try {
                     const numero = contact.id.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+                    // Busca pelo número usando os últimos 8 dígitos para evitar conflitos de 9º dígito
+                    const finalNumero = numero.slice(-8);
+                    
                     await query(
                         `UPDATE leads SET lid = $1 WHERE celular LIKE $2 AND (lid IS NULL OR lid = '')`,
-                        [contact.lid, `%${numero}%`]
+                        [contact.lid, `%${finalNumero}`]
                     );
-                } catch (e) { /* ignora */ }
+                } catch (e) { /* ignora erros de concorrência de banco */ }
             }
         }
     });
