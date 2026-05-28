@@ -64,18 +64,6 @@ services:
       retries: 3
       start_period: 40s
 
-  watchtower:
-    image: containrrr/watchtower
-    container_name: watchtower_leadsflow
-    restart: always
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - WATCHTOWER_POLL_INTERVAL=30
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_INCLUDE_STOPPED=false
-    command: leadsflow
-
 volumes:
   postgres_data:
   redis_data:
