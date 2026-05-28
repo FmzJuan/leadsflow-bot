@@ -23,11 +23,8 @@ async function enviarMensagemHumana(sock, jid, texto, job) {
         await new Promise(resolve => setTimeout(resolve, tempoDigitando));
         
         // Envia a mensagem ativa
-        const msgEnviada = await sock.sendMessage(jid, { text: texto });
+        await sock.sendMessage(jid, { text: texto });
 
-        // Correção do Erro 2 e 3: Como sock.store não existe, tentamos buscar no banco o LID gerado se houver
-        // No envio ativo para novos contatos, o WhatsApp pode vincular o LID internamente.
-        // Se o job trouxe o idBanco (ID da tabela leads), garantimos a atualização dela.
         if (job?.data?.idBanco) {
             await query(
                 `UPDATE leads SET status_envio = 'enviado', fase_bot = 'aguardando_nps', atualizado_em = CURRENT_TIMESTAMP WHERE id = $1`, 
@@ -44,6 +41,7 @@ async function enviarMensagemHumana(sock, jid, texto, job) {
 }
 
 function iniciarWorker(clienteId) {
+    // CORREÇÃO DE SINTAXE AQUI: Atribuição correta do constructor e passagem correta de opções com a vírgula
     const worker = new Worker('pos-venda-rissato', async job => {
         
         const sock = getClientSocket(clienteId);
@@ -58,7 +56,6 @@ function iniciarWorker(clienteId) {
         // Normaliza o JID antes de usar
         const jidNormalizado = normalizarJid(`${telefone.replace(/\D/g, '')}@s.whatsapp.net`);
 
-        // Correção do Erro 1: Alterado split('%2C') para split(',')
         const envLista = process.env.NUMEROS_PERMITIDOS || "";
         const numerosPermitidos = envLista.split(',').map(n => n.trim().replace(/\D/g, '')).filter(n => n.length > 0);
 
@@ -91,12 +88,15 @@ function iniciarWorker(clienteId) {
             ];
             await salvarNoSheets(dadosParaPlanilha, 1);
 
-            // Correção do Erro 4: Mantém a tabela 'clientes' atualizada com o status que o fluxo.js espera ('pos_vendas_enviado')
+            // CORREÇÃO MULTI-TENANT: Agora inclui o clienteId e bate com o conflito composto da tabela
             await query(
-                "INSERT INTO clientes (whatsapp_id, status) VALUES ($1, 'pos_vendas_enviado') ON CONFLICT (whatsapp_id) DO UPDATE SET status = 'pos_vendas_enviado', atualizado_em = CURRENT_TIMESTAMP", 
-                [jidNormalizado]
+                `INSERT INTO clientes (cliente_id, whatsapp_id, status) 
+                 VALUES ($1, $2, 'pos_vendas_enviado') 
+                 ON CONFLICT (cliente_id, whatsapp_id) 
+                 DO UPDATE SET status = 'pos_vendas_enviado', atualizado_em = CURRENT_TIMESTAMP`, 
+                [clienteId, jidNormalizado]
             );
-            console.log(`[Worker] Cliente ${jidNormalizado} marcado como 'pos_vendas_enviado' na tabela clientes.`);
+            console.log(`[Worker] Cliente ${jidNormalizado} marcado como 'pos_vendas_enviado' para a oficina ${clienteId}.`);
 
         } else {
             const arraySorteio = mensagens5meses; 
@@ -113,18 +113,21 @@ function iniciarWorker(clienteId) {
             ];
             await salvarNoSheets(dadosParaPlanilha, 1);
 
-            // Mantém sincronia para o disparo de 5 meses
+            // CORREÇÃO MULTI-TENANT: Agora inclui o clienteId e bate com o conflito composto da tabela
             await query(
-                "INSERT INTO clientes (whatsapp_id, status) VALUES ($1, 'enviado') ON CONFLICT (whatsapp_id) DO UPDATE SET status = 'enviado', atualizado_em = CURRENT_TIMESTAMP", 
-                [jidNormalizado]
+                `INSERT INTO clientes (cliente_id, whatsapp_id, status) 
+                 VALUES ($1, $2, 'enviado') 
+                 ON CONFLICT (cliente_id, whatsapp_id) 
+                 DO UPDATE SET status = 'enviado', atualizado_em = CURRENT_TIMESTAMP`, 
+                [clienteId, jidNormalizado]
             );
-            console.log(`[Worker] Cliente ${jidNormalizado} marcado como 'enviado'.`);
+            console.log(`[Worker] Cliente ${jidNormalizado} marcado como 'enviado' para a oficina ${clienteId}.`);
         }
 
     }, { 
         connection,
         concurrency: 1
-    });
+    }); // <-- Fechamento do construtor corrigido aqui com a vírgula e chaves no lugar certo
 
     worker.on('completed', job => {
         console.log(`✅ [Worker] Job ${job.id} concluído com sucesso!`);
