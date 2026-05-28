@@ -35,23 +35,28 @@ function normalizarNumero(numeroBruto) {
 
 /**
  * Normaliza um JID do WhatsApp para garantir consistência, adicionando o nono dígito se necessário.
- * @param {string} jid - O JID original (ex: 551188887777@s.whatsapp.net ou 5511988887777@s.whatsapp.net).
+ * @param {string} jid - O JID original (ex: 551188887777:2@s.whatsapp.net).
  * @returns {string} O JID normalizado.
  */
 function normalizarJid(jid) {
-  // Remove tudo que não é número, mantém o @s.whatsapp.net
-  const [numero, dominio] = jid.split('@');
-  const limpo = numero.replace(/\D/g, '');
-  
-  // Garante que números BR com DDD tenham o nono dígito
-  // Ex: 5511988887777 (13 dígitos) = formato correto
-  // Ex: 551188887777 (12 dígitos) = falta o nono, adiciona
-  let normalizado = limpo;
-  if (limpo.startsWith('55') && limpo.length === 12) {
-    normalizado = limpo.slice(0, 4) + '9' + limpo.slice(4);
-  }
-  
-  return `${normalizado}@${dominio}`;
+    if (!jid) return "";
+    
+    // 1. Separa o número do domínio (@s.whatsapp.net ou @g.us)
+    const [parteLocal, dominio] = jid.split('@');
+    
+    // 2. Remove o ID do dispositivo do Baileys (tudo depois do ':')
+    const numeroSemDispositivo = parteLocal.split(':')[0];
+    
+    // 3. Remove caracteres não numéricos do telefone
+    const limpo = numeroSemDispositivo.replace(/\D/g, '');
+    
+    // 4. Garante que números BR com DDD tenham o nono dígito
+    let normalizado = limpo;
+    if (limpo.startsWith('55') && limpo.length === 12) {
+        normalizado = limpo.slice(0, 4) + '9' + limpo.slice(4);
+    }
+    
+    return `${normalizado}@${dominio}`;
 }
 
 /**
