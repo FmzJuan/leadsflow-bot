@@ -1,4 +1,5 @@
 // Engine/whatsapp.js
+const { normalizarJid } = require('../utils/formatador');
 
 const { 
     default: makeWASocket, 
@@ -77,11 +78,8 @@ async function resolverLID(lid, msg, sock) {
     // 2️⃣ Campo participant da mensagem
     const participantMsg = msg.participant || msg.key?.participant;
     if (participantMsg && !participantMsg.endsWith('@lid')) {
-        const jidLimpo = participantMsg.replace(/:\d+@/, '@');
+        const jidLimpo = normalizarJid(participantMsg); // <-- USANDO A NOSSA FUNÇÃO OFICIAL
         await redis.set(`lid:${lid}`, jidLimpo, 'EX', 604800);
-        
-        // 🔥 CORREÇÃO: Salva no banco de dados para não ficar nulo!
-        await atualizarLidNoBanco(jidLimpo, lid);
         
         return jidLimpo;
     }
@@ -91,7 +89,7 @@ async function resolverLID(lid, msg, sock) {
     if (store?.contacts) {
         const contato = store.contacts[lid];
         if (contato?.id && !contato.id.endsWith('@lid')) {
-            const jidLimpo = `${contato.id.split('@')[0].replace(/\D/g, '')}@s.whatsapp.net`;
+            const jidLimpo = normalizarJid(contato.id); // <-- USANDO A NOSSA FUNÇÃO OFICIAL
             await redis.set(`lid:${lid}`, jidLimpo, 'EX', 604800);
             
             // 🔥 CORREÇÃO: Salva no banco de dados para não ficar nulo!
@@ -261,16 +259,15 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
     sock.ev.on('contacts.upsert', async (contacts) => {
         for (const contact of contacts) {
             if (contact.lid && contact.id && !contact.id.endsWith('@lid')) {
-                const jidLimpo = `${contact.id.split('@')[0].replace(/\D/g, '')}@s.whatsapp.net`;
+                
+                // Usando a nossa função que já tem o Baileys nativo embutido!
+                const jidLimpo = normalizarJid(contact.id);
                 
                 // Salva no Redis
                 await redis.set(`lid:${contact.lid}`, jidLimpo, 'EX', 604800);
                 console.log(`[Contacts Upsert] Mapeado: ${contact.lid} -> ${jidLimpo}`);
                 
-                // 🔥 CORREÇÃO RIGOROSA: Atualiza o banco usando a nova regra de segurança (DDD + 8 dígitos)
                 await atualizarLidNoBanco(jidLimpo, contact.lid);
-
-                // ✅ Verifica e reprocessa mensagem pendente para esse LID
                 await reprocessarPendente(contact.lid, jidLimpo, sock, clienteId);
             }
         }

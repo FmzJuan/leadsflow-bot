@@ -1,16 +1,27 @@
 /**
  * Pega um telefone sujo e transforma no JID perfeito para o Baileys
  */
+const { jidNormalizedUser } = require('@whiskeysockets/baileys');
+
 function formatarNumeroBaileys(celularBruto) {
     if (!celularBruto) return null;
+    
     let numeroLimpo = celularBruto.toString().replace(/\D/g, ''); 
     
-    // Se não tiver o 55 no início e tiver tamanho de celular, adiciona
+    // 1. Garante que tem o 55
     if (numeroLimpo.length >= 10 && !numeroLimpo.startsWith('55')) {
-        return '55' + numeroLimpo + '@s.whatsapp.net';
-    } else if (numeroLimpo.startsWith('55')) {
-        return numeroLimpo + '@s.whatsapp.net';
+        numeroLimpo = '55' + numeroLimpo;
     }
+    
+    // 2. Regra Anatel: Adiciona o 9º dígito se faltar (DDD + 8 dígitos)
+    if (numeroLimpo.startsWith('55') && numeroLimpo.length === 12) {
+        numeroLimpo = numeroLimpo.slice(0, 4) + '9' + numeroLimpo.slice(4);
+    }
+
+    if (numeroLimpo.startsWith('55')) {
+        return `${numeroLimpo}@s.whatsapp.net`;
+    }
+    
     return null; 
 }
 
@@ -41,24 +52,20 @@ function normalizarNumero(numeroBruto) {
 function normalizarJid(jid) {
     if (!jid) return "";
     
-    // 1. Separa o número do domínio (@s.whatsapp.net ou @g.us)
-    const [parteLocal, dominio] = jid.split('@');
+    // 1. NATIVO DA BIBLIOTECA: Remove a sujeira de sessões conectadas (:1, :2 etc)
+    const jidNativo = jidNormalizedUser(jid);
     
-    // 2. Remove o ID do dispositivo do Baileys (tudo depois do ':')
-    const numeroSemDispositivo = parteLocal.split(':')[0];
+    // 2. Separa para garantir a regra BR
+    const [numero, dominio] = jidNativo.split('@');
+    let limpo = numero.replace(/\D/g, '');
     
-    // 3. Remove caracteres não numéricos do telefone
-    const limpo = numeroSemDispositivo.replace(/\D/g, '');
-    
-    // 4. Garante que números BR com DDD tenham o nono dígito
-    let normalizado = limpo;
+    // 3. Regra Anatel
     if (limpo.startsWith('55') && limpo.length === 12) {
-        normalizado = limpo.slice(0, 4) + '9' + limpo.slice(4);
+        limpo = limpo.slice(0, 4) + '9' + limpo.slice(4);
     }
     
-    return `${normalizado}@${dominio}`;
+    return `${limpo}@${dominio}`;
 }
-
 /**
  * Recebe uma linha inteira do CSV e transforma no array do Google Sheets
  * Seguindo a estrutura: id_cliente, nome, celular, datacadastro, celular_limpo, status, 24horas, 6meses
