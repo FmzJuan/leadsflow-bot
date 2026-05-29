@@ -40,6 +40,35 @@ function criarContactStore() {
     return { contacts, bind };
 }
 
+// ✅ FUNÇÃO AUXILIAR RIGOROSA: Vincula o LID no Postgres usando DDD + 8 dígitos finais (Evita Colisões)
+async function atualizarLidNoBanco(jid, lid) {
+    try {
+        const digitos = jid.split('@')[0].replace(/\D/g, ''); // Remove tudo que não for número
+        
+        // Extrai o DDD de forma inteligente (se começar com 55 pega o 3º e 4º dígito, senão pega os 2 primeiros)
+        const ddd = digitos.startsWith('55') ? digitos.substring(2, 4) : digitos.substring(0, 2);
+        const final8 = digitos.slice(-8); // Pega os últimos 8 dígitos obrigatórios
+        
+        // A busca vira %DDD%ÚLTIMOS8 (ex: %11%91961603). 
+        // Isso acha tanto com nono dígito quanto sem, mas trava o DDD para não cruzar pessoas de outras cidades!
+        const termoBusca = `%${ddd}%${final8}`;
+
+        const resultado = await query(
+            `UPDATE leads 
+             SET lid = $1 
+             WHERE celular LIKE $2 
+               AND (lid IS NULL OR lid = '')`,
+            [lid, termoBusca]
+        );
+
+        if (resultado.rowCount > 0) {
+            console.log(`[Postgres] 🔗 LID ${lid} vinculado com sucesso para o JID ${jid}`);
+        }
+    } catch (e) {
+        console.error(`[Postgres] Erro ao salvar LID no banco para ${jid}:`, e.message);
+    }
+}
+
 async function resolverLID(lid, msg, sock) {
     // 1️⃣ Cache Redis — mais rápido
     const doRedis = await redis.get(`lid:${lid}`);
@@ -50,6 +79,10 @@ async function resolverLID(lid, msg, sock) {
     if (participantMsg && !participantMsg.endsWith('@lid')) {
         const jidLimpo = participantMsg.replace(/:\d+@/, '@');
         await redis.set(`lid:${lid}`, jidLimpo, 'EX', 604800);
+        
+        // 🔥 CORREÇÃO: Salva no banco de dados para não ficar nulo!
+        await atualizarLidNoBanco(jidLimpo, lid);
+        
         return jidLimpo;
     }
 
@@ -60,6 +93,10 @@ async function resolverLID(lid, msg, sock) {
         if (contato?.id && !contato.id.endsWith('@lid')) {
             const jidLimpo = `${contato.id.split('@')[0].replace(/\D/g, '')}@s.whatsapp.net`;
             await redis.set(`lid:${lid}`, jidLimpo, 'EX', 604800);
+            
+            // 🔥 CORREÇÃO: Salva no banco de dados para não ficar nulo!
+            await atualizarLidNoBanco(jidLimpo, lid);
+            
             return jidLimpo;
         }
     }
@@ -92,7 +129,7 @@ async function salvarLidPendente(lid, clienteId, msg) {
     // Redis com TTL de 2h (tempo suficiente para o contacts.upsert disparar)
     await redis.set(`lid_pendente:${lid}`, payload, 'EX', 7200);
 
-    // Postgres para persistência além do TTL e visibilidade operacional
+    // Postgres para persistence além do TTL e visibilidade operacional
     try {
         await query(
             `INSERT INTO lid_pendentes (lid, cliente_id, texto, criado_em)
@@ -101,7 +138,6 @@ async function salvarLidPendente(lid, clienteId, msg) {
             [lid, clienteId, texto]
         );
     } catch (e) {
-        // Tabela pode não existir ainda — não quebra o fluxo
         console.warn(`[LID Pendente] Aviso ao salvar no banco: ${e.message}`);
     }
 }
@@ -231,17 +267,11 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
                 await redis.set(`lid:${contact.lid}`, jidLimpo, 'EX', 604800);
                 console.log(`[Contacts Upsert] Mapeado: ${contact.lid} -> ${jidLimpo}`);
                 
-                // Atualiza o banco com o LID descoberto
-                try {
-                    const finalNumero = jidLimpo.replace('@s.whatsapp.net', '').slice(-8);
-                    await query(
-                        `UPDATE leads SET lid = $1 WHERE celular LIKE $2 AND (lid IS NULL OR lid = '')`,
-                        [contact.lid, `%${finalNumero}`]
-                    );
-                } catch (e) { /* ignora erros de concorrência */ }
+                // 🔥 CORREÇÃO RIGOROSA: Atualiza o banco usando a nova regra de segurança (DDD + 8 dígitos)
+                await atualizarLidNoBanco(jidLimpo, contact.lid);
 
                 // ✅ Verifica e reprocessa mensagem pendente para esse LID
-                await reprocessarLidPendente(contact.lid, jidLimpo, sock, clienteId);
+                await reprocessarLendente(contact.lid, jidLimpo, sock, clienteId);
             }
         }
     });
