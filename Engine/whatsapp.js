@@ -1,6 +1,6 @@
 // Engine/whatsapp.js
 const { normalizarJid } = require('../utils/formatador');
-
+const { iniciarSincronizador } = require('./sincronizar');
 const { 
     default: makeWASocket, 
     useMultiFileAuthState, 
@@ -182,43 +182,35 @@ function ultimosDigitos(numStr, n = 8) {
 }
 // ✅ MONITOR DE LIDs PENDENTES (Watchdog)
 function iniciarMonitorLIDs(sock, clienteId, io) {
-    // Roda a cada 2 minutos (120000 ms)
     setInterval(async () => {
         try {
             const pendentes = await query(`SELECT lid, texto, criado_em FROM lid_pendentes WHERE cliente_id = $1`, [clienteId]);
-            
-            if (pendentes.rowCount === 0) return; // Tudo limpo, nada a fazer
+            if (pendentes.rowCount === 0) return;
 
             for (const p of pendentes.rows) {
-                // Calcula quantos minutos a mensagem está na fila de espera
-                const tempoEspera = (Date.now() - new Date(p.criado_em).getTime()) / 1000 / 60; 
+                // 1. Tenta resolver pelo cache/store/banco (função que já criamos)
+                let jidResolvido = await resolverLID(p.lid, {}, sock);
 
-                // TENTA FORÇAR A RESOLUÇÃO: Vai que o Baileys baixou o contato silenciosamente e não avisou
-                const jidResolvido = await resolverLID(p.lid, {}, sock);
+                // 2. SE AINDA NÃO ACHOU, VAI NO BANCO DE DADOS (Tabela Leads)
+                // Se o LID existe no banco na coluna 'lid' da tabela 'leads', o bot já deveria saber!
+                if (!jidResolvido) {
+                    const res = await query(`SELECT celular FROM leads WHERE lid = $1`, [p.lid]);
+                    if (res.rows.length > 0) {
+                        jidResolvido = `${res.rows[0].celular.replace(/\D/g, '')}@s.whatsapp.net`;
+                        console.log(`[Monitor] Encontrado via Banco de Dados: ${jidResolvido}`);
+                    }
+                }
 
                 if (jidResolvido) {
-                    // Resgate bem-sucedido! O contato foi reconhecido atrasado.
-                    io.emit(`new-log-${clienteId}`, { 
-                        meta: `Sistema (Monitor LIDs)`,
-                        msg: `🚑 Resgate com sucesso! O LID ${p.lid} estava preso, mas foi identificado como ${jidResolvido}.`, 
-                        type: 'success' 
-                    });
                     await reprocessarLidPendente(p.lid, jidResolvido, sock, clienteId);
-                } 
-                else if (tempoEspera > 5) {
-                    // Se passou de 5 minutos e ainda não sabe quem é, solta o alerta vermelho
-                    io.emit(`new-log-${clienteId}`, { 
-                        meta: `Alerta de Sistema`,
-                        msg: `⚠️ Mensagem presa há ${Math.round(tempoEspera)} min: "${p.texto}". O WhatsApp ainda não sincronizou a agenda para o LID ${p.lid}.`, 
-                        type: 'warning' 
-                    });
                 }
             }
         } catch (e) {
-            console.error(`[Monitor LIDs] Erro na varredura para cliente ${clienteId}:`, e.message);
+            console.error(`[Monitor LIDs] Erro:`, e.message);
         }
-    }, 120000); 
+    }, 60000); // 1 minuto é melhor que 2 para testes
 }
+
 async function forcarSincronizacaoContato(sock, jid) {
     try {
         // Tenta buscar o contato diretamente na rede do WhatsApp
@@ -292,13 +284,13 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
                 setTimeout(() => connectToWhatsApp(clienteId, onMessage, onWorker), 5000);
             }
 
-        }  else if (connection === 'open') {
+        } else if (connection === 'open') {
             console.log(`✅ BOT DO CLIENTE ${clienteId} ONLINE!`);
             sessions.set(clienteId, sock); 
             io.emit(`status-${clienteId}`, 'conectado');
 
-            // 👇 LIGA O CÃO DE GUARDA
-            iniciarMonitorLIDs(sock, clienteId, io);
+            // ✅ AGORA O SINCRONIZADOR VEM DO ARQUIVO SEPARADO
+            iniciarSincronizador(sock, clienteId);
 
             if (onWorker && typeof onWorker === 'function' && !workersAtivos.has(clienteId)) {
                 onWorker(clienteId);
