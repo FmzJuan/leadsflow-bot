@@ -219,6 +219,19 @@ function iniciarMonitorLIDs(sock, clienteId, io) {
         }
     }, 120000); 
 }
+async function forcarSincronizacaoContato(sock, jid) {
+    try {
+        // Tenta buscar o contato diretamente na rede do WhatsApp
+        const result = await sock.onWhatsApp(jid);
+        if (result && result.length > 0) {
+            console.log(`[Sync] Contato encontrado na rede: ${jid}`);
+            return true;
+        }
+    } catch (e) {
+        console.error(`[Sync] Erro ao buscar contato:`, e.message);
+    }
+    return false;
+}
 async function connectToWhatsApp(clienteId, onMessage, onWorker) {
     const { io } = require('../index'); 
 
