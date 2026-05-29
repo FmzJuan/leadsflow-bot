@@ -3,28 +3,29 @@ const { query } = require('../DataBase/conection');
 const { resolverLID, reprocessarLidPendente } = require('./utils_lid');
 
 async function rodarRotinaDeSincronizacao(sock, clienteId) {
-    console.log(`[Sincronizador] Verificando LIDs pendentes para cliente ${clienteId}...`);
-    
-    try {
-        const res = await query(`
-            SELECT lid, texto 
-            FROM lid_pendentes 
-            WHERE cliente_id = $1 
-            AND criado_em < NOW() - INTERVAL '2 minutes'
-        `, [clienteId]);
+    const pendentes = await query(`SELECT lid FROM lid_pendentes WHERE cliente_id = $1`, [clienteId]);
 
-        for (const pendente of res.rows) {
-            // O segredo aqui: o sock já contém a sessão carregada da auth_info_1
-            // Se o Baileys souber quem é o LID, o resolverLID vai achar na memória (store)
-            let jidResolvido = await resolverLID(pendente.lid, {}, sock);
-
-            if (jidResolvido) {
-                console.log(`[Sincronizador] Bingo! LID ${pendente.lid} resolvido para ${jidResolvido}`);
-                await reprocessarLidPendente(pendente.lid, jidResolvido, sock, clienteId);
+    for (const p of pendentes.rows) {
+        // 1. Tenta resolver normal
+        let jid = await resolverLID(p.lid, {}, sock);
+        
+        // 2. FORÇA BRUTA: Se não achou, pede para o WhatsApp traduzir o LID agora
+        if (!jid) {
+            try {
+                // A magia acontece aqui: Essa função força o WhatsApp a procurar esse usuário na rede
+                const resultado = await sock.onWhatsApp(p.lid.replace('@lid', '')); 
+                if (resultado && resultado.length > 0) {
+                    jid = resultado[0].jid;
+                    console.log(`[Sincronizador] Força Bruta: ${p.lid} -> ${jid}`);
+                }
+            } catch (err) {
+                console.log(`[Sincronizador] WhatsApp não liberou o JID para ${p.lid}`);
             }
         }
-    } catch (error) {
-        console.error(`[Sincronizador] Erro:`, error.message);
+
+        if (jid) {
+            await reprocessarLidPendente(p.lid, jid, sock, clienteId);
+        }
     }
 }
 function iniciarSincronizador(sock, clienteId) {
