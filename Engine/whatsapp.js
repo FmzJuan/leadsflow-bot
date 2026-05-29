@@ -180,7 +180,45 @@ function extrairNumeroDoJid(jid) {
 function ultimosDigitos(numStr, n = 8) {
     return numStr.slice(-n);
 }
+// ✅ MONITOR DE LIDs PENDENTES (Watchdog)
+function iniciarMonitorLIDs(sock, clienteId, io) {
+    // Roda a cada 2 minutos (120000 ms)
+    setInterval(async () => {
+        try {
+            const pendentes = await query(`SELECT lid, texto, criado_em FROM lid_pendentes WHERE cliente_id = $1`, [clienteId]);
+            
+            if (pendentes.rowCount === 0) return; // Tudo limpo, nada a fazer
 
+            for (const p of pendentes.rows) {
+                // Calcula quantos minutos a mensagem está na fila de espera
+                const tempoEspera = (Date.now() - new Date(p.criado_em).getTime()) / 1000 / 60; 
+
+                // TENTA FORÇAR A RESOLUÇÃO: Vai que o Baileys baixou o contato silenciosamente e não avisou
+                const jidResolvido = await resolverLID(p.lid, {}, sock);
+
+                if (jidResolvido) {
+                    // Resgate bem-sucedido! O contato foi reconhecido atrasado.
+                    io.emit(`new-log-${clienteId}`, { 
+                        meta: `Sistema (Monitor LIDs)`,
+                        msg: `🚑 Resgate com sucesso! O LID ${p.lid} estava preso, mas foi identificado como ${jidResolvido}.`, 
+                        type: 'success' 
+                    });
+                    await reprocessarLidPendente(p.lid, jidResolvido, sock, clienteId);
+                } 
+                else if (tempoEspera > 5) {
+                    // Se passou de 5 minutos e ainda não sabe quem é, solta o alerta vermelho
+                    io.emit(`new-log-${clienteId}`, { 
+                        meta: `Alerta de Sistema`,
+                        msg: `⚠️ Mensagem presa há ${Math.round(tempoEspera)} min: "${p.texto}". O WhatsApp ainda não sincronizou a agenda para o LID ${p.lid}.`, 
+                        type: 'warning' 
+                    });
+                }
+            }
+        } catch (e) {
+            console.error(`[Monitor LIDs] Erro na varredura para cliente ${clienteId}:`, e.message);
+        }
+    }, 120000); 
+}
 async function connectToWhatsApp(clienteId, onMessage, onWorker) {
     const { io } = require('../index'); 
 
@@ -241,10 +279,13 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
                 setTimeout(() => connectToWhatsApp(clienteId, onMessage, onWorker), 5000);
             }
 
-        } else if (connection === 'open') {
+        }  else if (connection === 'open') {
             console.log(`✅ BOT DO CLIENTE ${clienteId} ONLINE!`);
             sessions.set(clienteId, sock); 
             io.emit(`status-${clienteId}`, 'conectado');
+
+            // 👇 LIGA O CÃO DE GUARDA
+            iniciarMonitorLIDs(sock, clienteId, io);
 
             if (onWorker && typeof onWorker === 'function' && !workersAtivos.has(clienteId)) {
                 onWorker(clienteId);
