@@ -271,7 +271,7 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
                 await atualizarLidNoBanco(jidLimpo, contact.lid);
 
                 // ✅ Verifica e reprocessa mensagem pendente para esse LID
-                await reprocessarLendente(contact.lid, jidLimpo, sock, clienteId);
+                await reprocessarPendente(contact.lid, jidLimpo, sock, clienteId);
             }
         }
     });
