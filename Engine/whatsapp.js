@@ -268,7 +268,7 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
                 console.log(`[Contacts Upsert] Mapeado: ${contact.lid} -> ${jidLimpo}`);
                 
                 await atualizarLidNoBanco(jidLimpo, contact.lid);
-                await reprocessarPendente(contact.lid, jidLimpo, sock, clienteId);
+                await reprocessarLidPendente(contact.lid, jidLimpo, sock, clienteId);
             }
         }
     });
