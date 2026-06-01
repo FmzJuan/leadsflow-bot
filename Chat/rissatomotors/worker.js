@@ -55,8 +55,8 @@ function iniciarWorker(clienteId) {
         
         // Normaliza o JID antes de usar
         const jidNormalizado = normalizarJid(`${telefone.replace(/\D/g, '')}@s.whatsapp.net`);
-
-        const envLista = process.env.NUMEROS_PERMITIDOS || "";
+        //o que esta em comentario serve apenas para testes locais, ou para controlar a list
+        /*const envLista = process.env.NUMEROS_PERMITIDOS || "";
         const numerosPermitidos = envLista.split(',').map(n => n.trim().replace(/\D/g, '')).filter(n => n.length > 0);
 
         if (numerosPermitidos.length > 0) {
@@ -68,7 +68,7 @@ function iniciarWorker(clienteId) {
                 console.log(`[TESTE] Bloqueado: ${telefone} não bate com a lista do .env.`);
                 return; 
             }
-        }
+        }*/
 
         console.log(`[Worker] Processando disparo liberado para: ${nome} (${tipo}) JID: ${jidNormalizado}`);
 

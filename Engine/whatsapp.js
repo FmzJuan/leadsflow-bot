@@ -355,30 +355,34 @@ async function connectToWhatsApp(clienteId, onMessage, onWorker) {
 
         if (from.endsWith('@g.us') || from === 'status@broadcast') return;
 
-        // ✅ Lista branca
-        const envLista = (process.env.NUMEROS_PERMITIDOS || "").trim();
-        const numerosPermitidos = envLista
-            .split(',')
-            .map(n => n.trim().replace(/\D/g, ''))
-            .filter(n => n.length > 0);
-
+        // ✅ Lista Branca Dinâmica (Direto do ERP / Banco de Dados)
         const fromNumero = extrairNumeroDoJid(from);
 
-        if (numerosPermitidos.length > 0 && !msg.key.fromMe) {
+        // Só faz a checagem se a mensagem não foi enviada por você mesmo
+        if (!msg.key.fromMe) {
+            // Pegamos os últimos 8 dígitos para evitar conflitos de DDD ou DDI (55)
             const finalRecebido = ultimosDigitos(fromNumero, 8);
+            const termoBusca = `%${finalRecebido}`;
 
-            const numeroAutorizado = numerosPermitidos.some(numEnv => {
-                const finalEnv = ultimosDigitos(numEnv, 8);
-                return finalRecebido === finalEnv;
-            });
+            try {
+                // Checa se existe algum cliente na tabela de leads com este número
+                const checkDb = await query(
+                    `SELECT celular FROM leads WHERE celular LIKE $1 LIMIT 1`, 
+                    [termoBusca]
+                );
 
-            if (!numeroAutorizado) {
-                io.emit(`new-log-${clienteId}`, { 
-                    meta: `Desconhecido (${fromNumero})`,
-                    msg: `🚫 Mensagem ignorada (Número não autorizado na Lista Branca)`, 
-                    type: 'error' 
-                });
-                return;
+                // Se o número não for encontrado no banco (veio do ERP), o bot ignora
+                if (checkDb.rowCount === 0) {
+                    io.emit(`new-log-${clienteId}`, { 
+                        meta: `Desconhecido (${fromNumero})`,
+                        msg: `🚫 Ignorado: Número não encontrado na base do ERP.`, 
+                        type: 'error' 
+                    });
+                    return; // Mata o processamento aqui, o bot não responde
+                }
+            } catch (err) {
+                console.error("[Segurança] Erro ao consultar banco na Lista Branca:", err.message);
+                return; // Em caso de falha no banco, ignora a mensagem por segurança
             }
         }
 

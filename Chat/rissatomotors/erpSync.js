@@ -2,8 +2,8 @@ const path = require('path');
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const csv = require('csv-parser');
+const { formatarLeadParaSheets, limparEFormatarCelular } = require('../../utils/formatador');
 
-const { formatarLeadParaSheets } = require('../../utils/formatador');
 const { 
     salvarDadosBrutosERP, 
     atualizarAbaClientes, 
@@ -250,8 +250,7 @@ async function processarCSV_OS(caminhoArquivo, clienteId, mapaContatos) {
 
                 // Se achou o telefone e tem a data exata da OS, prepara para o banco
                 if (telefoneEncontrado && dataSaida) {
-                    dadosCruzadosParaBanco.push([dataSaida, nomeOS, telefoneEncontrado, veiculo]);
-                }
+                dadosCruzadosParaBanco.push([dataSaida, nomeOS, telefoneEncontrado, veiculo, placa]);                }
             })
             .on('end', async () => {
                 try {
@@ -277,8 +276,13 @@ async function salvarNoPostgres(dados, clienteId) {
     console.log(`[Database] Persistindo ${dados.length} registros no histórico e agendando Leads do Cliente ${clienteId}...`);
     
     for (const linha of dados) {
-        // 👈 placaInfo adicionado aqui
-        const [dataStr, nome, telefone, veiculoInfo, placaInfo] = linha;
+        // Agora sabemos que a posição '2' da linha (telefone) já está limpa 
+        // devido ao processamento anterior, mas vamos garantir:
+        const [dataStr, nome, telefoneOriginal, veiculoInfo, placaInfo] = linha;
+        
+        // Aplica a limpeza final (segurança extra)
+        const telefone = limparEFormatarCelular(telefoneOriginal);
+        
         const veiculo = veiculoInfo || 'Não informado';
         const placa = placaInfo || 'Não informada';
 
@@ -290,7 +294,8 @@ async function salvarNoPostgres(dados, clienteId) {
             dataSaida = new Date(dataStr);
         }
 
-        if (isNaN(dataSaida.getTime()) || !telefone) continue; 
+        // IMPORTANTE: Use a variável 'telefone' já limpa aqui:
+        if (isNaN(dataSaida.getTime()) || !telefone) continue;
 
         // Salva no arquivo morto (Histórico Geral)
         await query(`
