@@ -2,8 +2,7 @@ const path = require('path');
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const csv = require('csv-parser');
-const { formatarLeadParaSheets, limparEFormatarCelular } = require('../../utils/formatador');
-
+const { formatarLeadParaSheets, formatarNumeroBaileys } = require('../../utils/formatador');
 const { 
     salvarDadosBrutosERP, 
     atualizarAbaClientes, 
@@ -192,20 +191,23 @@ async function processarCSVClientes(caminhoArquivo, clienteId, mapaContatos) {
             .on('data', (linha) => {
                 const leadLimpo = formatarLeadParaSheets(linha); 
                 
-                if (leadLimpo) {
-                    const [dataStr, nome, telefone] = leadLimpo;
-                    
-                    // 🧠 Alimenta o dicionário [Nome -> Telefone]
+                    if (leadLimpo) {
+                     // ✅ Extraindo pelas posições corretas do seu array formatarLeadParaSheets
+                       const nome = leadLimpo[1];          // Posição 1 é o NOME
+                       const telefone = leadLimpo[4];      // Posição 4 é o JID FORMATADO (pronto pro Baileys)
+    
+                     // 🧠 Alimenta o dicionário [Nome -> Telefone]
                     if (nome && telefone) {
-                        mapaContatos.set(nome.trim().toUpperCase(), telefone);
-                    }
+                       mapaContatos.set(nome.trim().toUpperCase(), telefone);
+    }
 
-                    const dataServico = converterDataERP(linha['DATA_CADASTRO'] || linha['ULTIMA_VISITA']);
-                    if (dataServico >= limiteData) {
-                        dadosQuentes.push(leadLimpo); 
-                    }
-                    dadosFrios.push(leadLimpo); 
-                }
+    const dataServico = converterDataERP(linha['DATA_CADASTRO'] || linha['ULTIMA_VISITA']);
+    
+    if (dataServico >= limiteData) {
+        dadosQuentes.push(leadLimpo); 
+    }
+    dadosFrios.push(leadLimpo); 
+}
             })
             .on('end', async () => {
                 try {
@@ -281,7 +283,7 @@ async function salvarNoPostgres(dados, clienteId) {
         const [dataStr, nome, telefoneOriginal, veiculoInfo, placaInfo] = linha;
         
         // Aplica a limpeza final (segurança extra)
-        const telefone = limparEFormatarCelular(telefoneOriginal);
+        const telefone = formatarNumeroBaileys(telefoneOriginal);
         
         const veiculo = veiculoInfo || 'Não informado';
         const placa = placaInfo || 'Não informada';
