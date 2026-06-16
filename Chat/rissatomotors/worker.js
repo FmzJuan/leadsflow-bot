@@ -98,30 +98,35 @@ function iniciarWorker(clienteId) {
             );
             console.log(`[Worker] Cliente ${jidNormalizado} marcado como 'pos_vendas_enviado' para a oficina ${clienteId}.`);
 
-        } else {
-            const arraySorteio = mensagens5meses; 
-            const textoSorteado = arraySorteio[Math.floor(Math.random() * arraySorteio.length)];
-            const textoFinal = textoSorteado
-                .replace('{nome}', primeiroNome)
-                .replace('{model_car}', veiculo || 'seu veículo') 
-                .replace('{car_plate}', placa || 'não informada');
+        }// Lógica para 5 meses (acionada por 'retorno_6meses' do seu banco)
+else if (tipo === 'retorno_6meses') {
+    const arraySorteio = mensagens5meses; // Usa o array de 5 meses conforme solicitado
+    const textoSorteado = arraySorteio[Math.floor(Math.random() * arraySorteio.length)];
+    const textoFinal = textoSorteado
+        .replace('{nome}', primeiroNome)
+        .replace('{model_car}', veiculo || 'seu veículo') 
+        .replace('{car_plate}', placa || 'não informada');
 
-            await enviarMensagemHumana(sock, jidNormalizado, textoFinal, job);
+    await enviarMensagemHumana(sock, jidNormalizado, textoFinal, job);
 
-            const dadosParaPlanilha = [
-                new Date().toLocaleString('pt-BR'), nome, telefone, `Pós-Venda ${tipo}`, 'Mensagem Enviada'
-            ];
-            await salvarNoSheets(dadosParaPlanilha, 1);
+    const dadosParaPlanilha = [
+        new Date().toLocaleString('pt-BR'), nome, telefone, `Pós-Venda 5 Meses`, 'Mensagem Enviada'
+    ];
+    await salvarNoSheets(dadosParaPlanilha, 1);
 
-            // CORREÇÃO MULTI-TENANT: Agora inclui o clienteId e bate com o conflito composto da tabela
-            await query(
-                `INSERT INTO clientes (cliente_id, whatsapp_id, status) 
-                 VALUES ($1, $2, 'enviado') 
-                 ON CONFLICT (cliente_id, whatsapp_id) 
-                 DO UPDATE SET status = 'enviado', atualizado_em = CURRENT_TIMESTAMP`, 
-                [clienteId, jidNormalizado]
-            );
-            console.log(`[Worker] Cliente ${jidNormalizado} marcado como 'enviado' para a oficina ${clienteId}.`);
+    // Atualiza o banco com o status de enviado para este fluxo
+    await query(
+        `INSERT INTO clientes (cliente_id, whatsapp_id, status) 
+         VALUES ($1, $2, 'enviado') 
+         ON CONFLICT (cliente_id, whatsapp_id) 
+         DO UPDATE SET status = 'enviado', atualizado_em = CURRENT_TIMESTAMP`, 
+        [clienteId, jidNormalizado]
+    );
+    console.log(`[Worker] Cliente ${jidNormalizado} marcado como 'enviado' (Fluxo 5 Meses).`);
+} 
+        else {
+          console.warn(`[Worker] Tipo de lead não reconhecido: ${tipo}. Nenhuma ação tomada para ${jidNormalizado}.`);
+          return ; 
         }
 
     }, { 
@@ -136,7 +141,6 @@ function iniciarWorker(clienteId) {
     worker.on('failed', (job, err) => {
         console.error(`❌ [Worker] Falha no job ${job.id} (tentativa ${job.attemptsMade}/${job.opts.attempts}):`, err.message);
     });
-
     console.log(`👷 Worker BullMQ da Rissato Motors pronto para processar jobs.`);
 }
 
