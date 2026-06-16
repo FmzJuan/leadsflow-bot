@@ -13,52 +13,51 @@ async function processarDadosERP(req, res) {
             const data24h = new Date(dataZero);
             data24h.setDate(data24h.getDate() + 1);
 
-            const data6Meses = new Date(dataZero);
-            data6Meses.setDate(data6Meses.getDate() + 180);
+            // 🛠️ MUDANÇA 1: Altera de 180 para 150 dias (5 meses)
+            const data5Meses = new Date(dataZero);
+            data5Meses.setDate(data5Meses.getDate() + 150);
 
             // 1. Cancela retornos antigos no banco
             await query(`
                 UPDATE leads SET status_envio = 'cancelado_retorno', atualizado_em = CURRENT_TIMESTAMP
-                WHERE whatsapp_id = $1 AND cliente_id = $2 AND tipo_envio = \'retorno_6meses\' AND status_envio = \'pendente\'
-            `, [normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`), clienteId]); // ✅ Parâmetros adicionados
+                WHERE whatsapp_id = $1 AND cliente_id = $2 AND tipo_envio = 'retorno_6meses' AND status_envio = 'pendente'
+            `, [normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`), clienteId]);
 
-            // 2. Insere 24h no banco
+            // 2. Insere 24h no banco (mantido igual)
             await query(`
                 INSERT INTO leads (cliente_id, nome, whatsapp_id, veiculo, data_saida, tipo_envio, data_agendada, status_envio)
-                VALUES ($1, $2, $3, $4, $5, \'pos_venda_24h\', $6, \'pendente\')
+                VALUES ($1, $2, $3, $4, $5, 'pos_venda_24h', $6, 'pendente')
                 ON CONFLICT (cliente_id, whatsapp_id, tipo_envio, data_saida) DO NOTHING;
-            `, [clienteId, lead.nome, normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`), lead.veiculo, lead.data_saida, data24h]); // ✅ Parâmetros adicionados
+            `, [clienteId, lead.nome, normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`), lead.veiculo, lead.data_saida, data24h]);
 
-            // 3. Insere 6 Meses no banco
+            // 🛠️ MUDANÇA 2: Insere 5 Meses no banco usando a variável de data corrigida (Mantém tipo_envio 'retorno_6meses' por enquanto para compatibilidade)
             await query(`
                 INSERT INTO leads (cliente_id, nome, whatsapp_id, veiculo, data_saida, tipo_envio, data_agendada, status_envio)
-                VALUES ($1, $2, $3, $4, $5, \'retorno_6meses\', $6, \'pendente\')
+                VALUES ($1, $2, $3, $4, $5, 'retorno_6meses', $6, 'pendente')
                 ON CONFLICT (cliente_id, whatsapp_id, tipo_envio, data_saida) DO NOTHING;
-            `, [clienteId, lead.nome, normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`), lead.veiculo, lead.data_saida, data6Meses]); // ✅ Parâmetros adicionados
+            `, [clienteId, lead.nome, normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`), lead.veiculo, lead.data_saida, data5Meses]); // <--- Aqui passamos data5Meses
 
             // 4. ESPELHO: ENVIANDO PARA O GOOGLE SHEETS
             
-            // Monta a linha de 24h
             const linha24h = [
-                data24h.toLocaleDateString('pt-BR'), // Coluna A: Data
-                lead.nome,                           // Coluna B: Nome
-                normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`),                        // Coluna C: WhatsApp
-                'Pós-Venda 24h',                     // Coluna D: Serviço
-                'Pendente'                           // Coluna E: Status
+                data24h.toLocaleDateString('pt-BR'),
+                lead.nome,
+                normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`),
+                'Pós-Venda 24h',
+                'Pendente'
             ];
 
-            // Monta a linha de 6 Meses ✅ Array estava vazio/faltando
-            const linha6Meses = [
-                data6Meses.toLocaleDateString('pt-BR'), // Coluna A: Data
+            // 🛠️ MUDANÇA 3: Atualiza o espelho para a nova data e o texto visual da planilha
+            const linha5Meses = [
+                data5Meses.toLocaleDateString('pt-BR'), // Coluna A: Data (agora com 150 dias)
                 lead.nome,                              // Coluna B: Nome
-                normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`),                           // Coluna C: WhatsApp
-                'Retorno 6 Meses',                      // Coluna D: Serviço
+                normalizarJid(`${normalizarNumero(lead.celular)}@s.whatsapp.net`),           // Coluna C: WhatsApp
+                'Retorno 5 Meses',                      // Coluna D: Serviço (Texto atualizado para a planilha)
                 'Pendente'                              // Coluna E: Status
             ];
 
-            // Chama a função passando os arrays
             await salvarNoSheets(linha24h, clienteId);
-            await salvarNoSheets(linha6Meses, clienteId);
+            await salvarNoSheets(linha5Meses, clienteId);
         }
 
         res.json({ success: true, message: "Fila criada no Banco e Espelhada na Planilha com sucesso!" });

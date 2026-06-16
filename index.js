@@ -70,34 +70,43 @@ async function start() {
         const result = await query("SELECT id, nome_oficina, subdominio FROM clientes_config WHERE status_assinatura = 'ativo'");
         const clientes = result.rows;
 
-        for (const cliente of clientes) {
-   console.log(`⚙️ Iniciando motor para: ${cliente.nome_oficina}...`);
+ for (const cliente of clientes) {
+            console.log(`⚙️ Iniciando motor para: ${cliente.nome_oficina}...`);
 
-    // 1. Defina a variável fora do if para que ela seja visível no connectToWhatsApp
-    let funcaoWorker = null;
+            // 1. Defina a variável do Worker
+            let funcaoWorker = null;
 
-    const workerPath = path.join(__dirname, 'Chat', cliente.subdominio, 'worker.js');
-    if (fs.existsSync(workerPath)) {
-        // Importa a função do arquivo
-        const { iniciarWorker } = require(workerPath);
-        
-        if (typeof iniciarWorker === 'function') {
-            funcaoWorker = iniciarWorker; // Armazena a referência para a função
-            funcaoWorker(cliente.id);     // Executa a função para subir o worker no BullMQ
-            console.log(`👷 Worker BullMQ iniciado para: ${cliente.nome_oficina}`);
+            const workerPath = path.join(__dirname, 'Chat', cliente.subdominio, 'worker.js');
+            if (fs.existsSync(workerPath)) {
+                const { iniciarWorker } = require(workerPath);
+                
+                if (typeof iniciarWorker === 'function') {
+                    funcaoWorker = iniciarWorker; 
+                    funcaoWorker(cliente.id);    
+                    console.log(`👷 Worker BullMQ iniciado para: ${cliente.nome_oficina}`);
+                }
+            }
+
+            // 👇👇👇 AQUI ESTÁ O QUE FULTOU NO SEU CÓDIGO 👇👇👇
+            const cronPath = path.join(__dirname, 'Chat', cliente.subdominio, 'cron.js');
+            if (fs.existsSync(cronPath)) {
+                const cronCliente = require(cronPath);
+                if (typeof cronCliente.iniciarCronJobs === 'function') {
+                    cronCliente.iniciarCronJobs();
+                    console.log(`⏰ CronJob ativado para a oficina: ${cliente.nome_oficina}`);
+                }
+            }
+            // 👆👆👆 ------------------------------------------ 👆👆👆
+
+            // 2. Agora chama a Engine do WhatsApp
+            await connectToWhatsApp(cliente.id, async (clienteId, sock, msg) => {
+                const fluxoPath = path.join(__dirname, 'Chat', cliente.subdominio, 'fluxo.js');
+                if (fs.existsSync(fluxoPath)) {
+                    const fluxoCliente = require(fluxoPath);
+                    await fluxoCliente.executar(sock, msg, io, clienteId);
+                }
+            }, funcaoWorker); 
         }
-    }
-
-    // 2. Agora, ao chamar o connectToWhatsApp, use a variável 'funcaoWorker'
-    // Se o arquivo existiu, ela terá a função. Se não, será null.
-    await connectToWhatsApp(cliente.id, async (clienteId, sock, msg) => {
-        const fluxoPath = path.join(__dirname, 'Chat', cliente.subdominio, 'fluxo.js');
-        if (fs.existsSync(fluxoPath)) {
-            const fluxoCliente = require(fluxoPath);
-            await fluxoCliente.executar(sock, msg, io, clienteId);
-        }
-    }, funcaoWorker); 
-}
     } catch (err) {
         console.error("❌ Erro fatal ao iniciar o sistema SaaS:", err);
     }
