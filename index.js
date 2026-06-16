@@ -73,12 +73,16 @@ async function start() {
         for (const cliente of clientes) {
             console.log(`⚙️ Iniciando motor para: ${cliente.nome_oficina}...`);
 
+           // 1. CARREGA E EXECUTA O WORKER (AQUI ESTÁ A MUDANÇA)
             const workerPath = path.join(__dirname, 'Chat', cliente.subdominio, 'worker.js');
-            let iniciarWorker = null;
-            if (fs.existsSync(workerPath)) {
-                iniciarWorker = require(workerPath).iniciarWorker;
-            }
-
+             if (fs.existsSync(workerPath)) {
+            const { iniciarWorker } = require(workerPath);
+             if (typeof iniciarWorker === 'function') {
+                iniciarWorker(cliente.id); // <--- AQUI: Você precisa executar a função passando o ID!
+                 console.log(`👷 Worker BullMQ iniciado para: ${cliente.nome_oficina}`);
+        }
+    }
+            // 2. O restante do seu código (cron, whatsapp, etc)...
             const cronPath = path.join(__dirname, 'Chat', cliente.subdominio, 'cron.js');
             if (fs.existsSync(cronPath)) {
                 const cronCliente = require(cronPath);
